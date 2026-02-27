@@ -1,47 +1,48 @@
 /**
- * Embedding generation using OpenAI text-embedding-3-small (1536 dimensions).
- * Supports batch processing for efficient embedding of multiple chunks.
+ * Embedding generation using Voyage AI voyage-3.5 (1024 dimensions).
+ * Supports batch processing with document/query input types for
+ * optimised retrieval performance.
  */
-import OpenAI from 'openai'
+import { VoyageAIClient } from 'voyageai'
 
-let _client: OpenAI | null = null
+let _client: VoyageAIClient | null = null
 
-function getOpenAIClient(): OpenAI {
+function getVoyageClient(): VoyageAIClient {
   if (_client) return _client
   const config = useRuntimeConfig()
   const apiKey = config.embeddingApiKey
   if (!apiKey) throw new Error('EMBEDDING_API_KEY not configured')
-  _client = new OpenAI({ apiKey })
+  _client = new VoyageAIClient({ apiKey })
   return _client
 }
 
-const EMBEDDING_MODEL = 'text-embedding-3-small'
-const EMBEDDING_DIMENSIONS = 1536
-const MAX_BATCH_SIZE = 100 // OpenAI limit per request
+const EMBEDDING_MODEL = 'voyage-3.5'
+const MAX_BATCH_SIZE = 128 // Voyage AI limit per request
 
 /**
  * Generates embeddings for an array of text strings.
+ * Uses input_type "document" for storage embeddings.
  * Handles batching automatically for large input arrays.
  * Returns embeddings in the same order as input.
  */
 export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
   if (texts.length === 0) return []
 
-  const client = getOpenAIClient()
+  const client = getVoyageClient()
   const allEmbeddings: number[][] = []
 
   for (let i = 0; i < texts.length; i += MAX_BATCH_SIZE) {
     const batch = texts.slice(i, i + MAX_BATCH_SIZE)
 
-    const response = await client.embeddings.create({
-      model: EMBEDDING_MODEL,
+    const response = await client.embed({
       input: batch,
-      dimensions: EMBEDDING_DIMENSIONS,
+      model: EMBEDDING_MODEL,
+      inputType: 'document',
     })
 
-    // OpenAI returns embeddings sorted by index
-    const sorted = response.data.sort((a, b) => a.index - b.index)
-    allEmbeddings.push(...sorted.map(d => d.embedding))
+    if (response.data) {
+      allEmbeddings.push(...response.data.map(d => d.embedding as number[]))
+    }
   }
 
   return allEmbeddings
@@ -49,8 +50,20 @@ export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
 
 /**
  * Generates a single embedding for a query string (used for semantic search).
+ * Uses input_type "query" for retrieval-optimised embedding.
  */
 export async function generateQueryEmbedding(query: string): Promise<number[]> {
-  const [embedding] = await generateEmbeddings([query])
-  return embedding
+  const client = getVoyageClient()
+
+  const response = await client.embed({
+    input: [query],
+    model: EMBEDDING_MODEL,
+    inputType: 'query',
+  })
+
+  if (!response.data?.[0]?.embedding) {
+    throw new Error('Failed to generate query embedding')
+  }
+
+  return response.data[0].embedding as number[]
 }

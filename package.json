@@ -16,7 +16,7 @@
     "@vueuse/nuxt": "^14.2.1",
     "meilisearch": "^0.55.0",
     "nuxt": "^4.3.1",
-    "openai": "^6.25.0",
+    "voyageai": "^0.1.0",
     "vue": "^3.5.28",
     "vue-router": "^4.6.4",
     "zod": "^4.3.6"
