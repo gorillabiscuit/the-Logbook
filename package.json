@@ -1,0 +1,31 @@
+{
+  "name": "the-Logbook",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "nuxt build",
+    "dev": "nuxt dev",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.78.0",
+    "@nuxt/ui": "^4.5.0",
+    "@nuxtjs/supabase": "^2.0.4",
+    "@vueuse/nuxt": "^14.2.1",
+    "meilisearch": "^0.55.0",
+    "nuxt": "^4.3.1",
+    "openai": "^6.25.0",
+    "vue": "^3.5.28",
+    "vue-router": "^4.6.4",
+    "zod": "^4.3.6"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@parcel/watcher",
+      "esbuild",
+      "vue-demi"
+    ]
+  }
+}
