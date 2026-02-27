@@ -1,7 +1,7 @@
 -- Switch embedding dimensions from 1536 (OpenAI) to 1024 (Voyage AI voyage-3.5)
 
 -- Drop existing chunks data (no production embeddings exist yet)
-truncate table chunks;
+truncate table chunks cascade;
 
 -- Change the embedding column dimension
 alter table chunks
