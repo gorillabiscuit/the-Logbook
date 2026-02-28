@@ -106,14 +106,19 @@ const upload = async () => {
     return
   }
 
-  if (!user.value) return
+  // Get user from session — more reliable than useSupabaseUser() which can be null during hydration
+  const { data: { user: sessionUser } } = await supabase.auth.getUser()
+  if (!sessionUser) {
+    toast.add({ title: 'Not authenticated', color: 'error' })
+    return
+  }
 
   uploading.value = true
 
   try {
     const file = selectedFile.value
     const ext = file.name.split('.').pop()
-    const storagePath = `${user.value.id}/${Date.now()}.${ext}`
+    const storagePath = `${sessionUser.id}/${Date.now()}.${ext}`
 
     // Upload to Supabase Storage
     const { error: storageError } = await supabase.storage
@@ -129,7 +134,7 @@ const upload = async () => {
     const { data: doc, error: dbError } = await supabase
       .from('documents')
       .insert({
-        uploaded_by: user.value.id,
+        uploaded_by: sessionUser.id,
         title: state.title,
         original_filename: file.name,
         file_url: storagePath,
@@ -203,6 +208,7 @@ const upload = async () => {
               type="file"
               class="hidden"
               accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif,.txt,.eml,.msg"
+              @click.stop
               @change="onFileChange"
             />
             <template v-if="selectedFile">

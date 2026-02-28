@@ -43,23 +43,38 @@ export async function extractText(
     throw new Error('Unstructured API credentials not configured')
   }
 
-  const formData = new FormData()
-  formData.append('files', fileData, fileUrl.split('/').pop() ?? 'document')
+  // Convert Blob to Buffer, then to File for proper multipart encoding
+  const arrayBuffer = await fileData.arrayBuffer()
+  const buffer = Buffer.from(arrayBuffer)
+  const filename = fileUrl.split('/').pop() ?? 'document'
+  const file = new File([buffer], filename, { type: mimeType ?? 'application/octet-stream' })
 
-  const response = await $fetch<UnstructuredElement[]>(apiUrl, {
+  const formData = new FormData()
+  formData.append('files', file)
+
+  // Use native fetch instead of $fetch — $fetch hangs with FormData in Nitro
+  const response = await fetch(apiUrl as string, {
     method: 'POST',
     headers: {
-      'unstructured-api-key': apiKey,
+      'unstructured-api-key': apiKey as string,
     },
     body: formData,
+    signal: AbortSignal.timeout(300000), // 5 minute timeout for large PDFs
   })
 
-  if (!response || !Array.isArray(response)) {
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => 'Unknown error')
+    throw new Error(`Unstructured API error (${response.status}): ${errorText}`)
+  }
+
+  const elements: UnstructuredElement[] = await response.json()
+
+  if (!elements || !Array.isArray(elements)) {
     throw new Error('Invalid response from Unstructured API')
   }
 
   // Concatenate extracted text elements with double newlines for paragraph separation
-  const text = response
+  const text = elements
     .filter(el => el.text && el.text.trim().length > 0)
     .map(el => el.text.trim())
     .join('\n\n')

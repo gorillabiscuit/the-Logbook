@@ -95,11 +95,16 @@ ${categoryTree}`,
 
   let parsed: any
   try {
-    // Handle potential markdown code blocks in response
-    const jsonStr = content.text.replace(/```json\n?|\n?```/g, '').trim()
-    parsed = JSON.parse(jsonStr)
-  } catch {
-    console.error('Failed to parse categorization response:', content.text)
+    // Handle potential markdown code blocks, preamble text, or thinking output
+    let jsonStr = content.text
+    // Strip markdown code fences
+    jsonStr = jsonStr.replace(/```json\n?|\n?```/g, '')
+    // Try to find a JSON object in the response
+    const jsonMatch = jsonStr.match(/\{[\s\S]*\}/)
+    if (!jsonMatch) throw new Error('No JSON object found in response')
+    parsed = JSON.parse(jsonMatch[0])
+  } catch (parseError) {
+    console.error('Failed to parse categorization response:', content.text, parseError)
     return { categories: [], summary: '', confidence: 0, extractedDate: null }
   }
 
