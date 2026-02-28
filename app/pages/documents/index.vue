@@ -176,7 +176,11 @@ const displayCount = computed(() => {
           {{ displayCount }} {{ isSearchMode ? 'search results' : 'documents' }}
         </p>
       </div>
-      <UButton label="Upload" icon="i-heroicons-arrow-up-tray" to="/documents/upload" />
+      <div class="flex gap-2">
+        <UButton label="Upload" icon="i-heroicons-arrow-up-tray" to="/documents/upload" />
+        <UButton label="Bulk import" icon="i-heroicons-arrow-down-tray" variant="outline" to="/documents/bulk-upload" />
+        <UButton label="WhatsApp" icon="i-heroicons-chat-bubble-left-right" variant="outline" to="/documents/import-whatsapp" />
+      </div>
     </div>
 
     <!-- Filters -->
