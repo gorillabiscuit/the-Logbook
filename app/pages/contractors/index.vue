@@ -11,7 +11,7 @@ const showForm = ref(false)
 const ratingContractor = ref<string | null>(null)
 const ratingValue = ref(5)
 const ratingComment = ref('')
-const filterSpeciality = ref('')
+const filterSpeciality = ref('all')
 
 const specialities = [
   'plumbing', 'electrical', 'painting', 'glazing', 'locksmith',
@@ -75,7 +75,7 @@ async function submitRating(contractorId: string) {
 }
 
 const filteredContractors = computed(() => {
-  if (!filterSpeciality.value) return contractors.value
+  if (!filterSpeciality.value || filterSpeciality.value === 'all') return contractors.value
   return contractors.value.filter(c => c.speciality === filterSpeciality.value)
 })
 
@@ -133,7 +133,7 @@ onMounted(fetchContractors)
     <div class="mb-4">
       <USelect
         v-model="filterSpeciality"
-        :items="[{ label: 'All specialities', value: '' }, ...specialities.map(s => ({ label: s, value: s }))]"
+        :items="[{ label: 'All specialities', value: 'all' }, ...specialities.map(s => ({ label: s, value: s }))]"
         value-key="value"
         class="w-48"
       />

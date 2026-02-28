@@ -7,12 +7,12 @@ const toast = useToast()
 
 const users = ref<any[]>([])
 const loading = ref(true)
-const filterRole = ref('')
+const filterRole = ref('all')
 const filterActive = ref('all')
 const updatingUser = ref<string | null>(null)
 
 const roleOptions = [
-  { label: 'All roles', value: '' },
+  { label: 'All roles', value: 'all' },
   { label: 'Super Admin', value: 'super_admin' },
   { label: 'Trustee', value: 'trustee' },
   { label: 'Lawyer', value: 'lawyer' },
@@ -93,7 +93,7 @@ async function toggleActive(userId: string, isActive: boolean) {
 
 const filteredUsers = computed(() => {
   return users.value.filter(u => {
-    if (filterRole.value && u.role !== filterRole.value) return false
+    if (filterRole.value && filterRole.value !== 'all' && u.role !== filterRole.value) return false
     if (filterActive.value === 'active' && !u.is_active) return false
     if (filterActive.value === 'inactive' && u.is_active) return false
     return true

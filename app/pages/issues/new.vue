@@ -18,7 +18,7 @@ const severityOptions = [
 const form = reactive({
   title: '',
   description: '',
-  category_id: '',
+  category_id: 'none',
   severity: 'normal',
   privacy_level: 'shared',
 })
@@ -33,7 +33,7 @@ onMounted(async () => {
 
 const categoryOptions = computed(() => {
   const parents = categories.value.filter(c => !c.parent_id)
-  const result: Array<{ label: string; value: string }> = [{ label: 'None', value: '' }]
+  const result: Array<{ label: string; value: string }> = [{ label: 'None', value: 'none' }]
   for (const parent of parents) {
     result.push({ label: parent.name, value: parent.id })
     const children = categories.value.filter(c => c.parent_id === parent.id)
@@ -56,7 +56,7 @@ async function submit() {
     const data = await $fetch<{ id: string }>('/api/issues', {
       method: 'POST',
       headers: { Authorization: `Bearer ${session?.access_token}` },
-      body: { ...form, category_id: form.category_id || null },
+      body: { ...form, category_id: form.category_id === 'none' ? null : form.category_id || null },
     })
     toast.add({ title: 'Issue reported', color: 'success' })
     await router.push(`/issues/${data.id}`)

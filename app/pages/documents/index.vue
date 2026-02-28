@@ -8,22 +8,22 @@ definePageMeta({
 const supabase = useSupabaseClient()
 const { query: searchQuery, results: searchResults, totalHits, searching, isSearchMode } = useSearch()
 
-const selectedPrivacy = ref<string>('')
-const selectedType = ref<string>('')
-const selectedCategory = ref<string>('')
+const selectedPrivacy = ref<string>('all')
+const selectedType = ref<string>('all')
+const selectedCategory = ref<string>('all')
 const loading = ref(false)
 const documents = ref<any[]>([])
 const categories = ref<Array<{ id: string; name: string; parent_id: string | null }>>([])
 
 const privacyFilterOptions = [
-  { label: 'All privacy', value: '' },
+  { label: 'All privacy', value: 'all' },
   { label: 'Shared', value: 'shared' },
   { label: 'Private', value: 'private' },
   { label: 'Privileged', value: 'privileged' },
 ]
 
 const docTypeFilterOptions = [
-  { label: 'All types', value: '' },
+  { label: 'All types', value: 'all' },
   { label: 'Letter', value: 'letter' },
   { label: 'Contract', value: 'contract' },
   { label: 'Minutes', value: 'minutes' },
@@ -53,7 +53,7 @@ const statusColors: Record<string, 'neutral' | 'warning' | 'success' | 'error'> 
 // Build category filter options (flat with parent > child format)
 const categoryFilterOptions = computed(() => {
   const parents = categories.value.filter(c => !c.parent_id)
-  const result: Array<{ label: string; value: string }> = [{ label: 'All categories', value: '' }]
+  const result: Array<{ label: string; value: string }> = [{ label: 'All categories', value: 'all' }]
 
   for (const parent of parents) {
     result.push({ label: parent.name, value: parent.id })
@@ -74,11 +74,11 @@ const fetchDocuments = async () => {
     .select('id, title, original_filename, privacy_level, doc_type, doc_date, processing_status, ai_summary, created_at')
     .order('created_at', { ascending: false })
 
-  if (selectedPrivacy.value) query = query.eq('privacy_level', selectedPrivacy.value)
-  if (selectedType.value) query = query.eq('doc_type', selectedType.value)
+  if (selectedPrivacy.value && selectedPrivacy.value !== 'all') query = query.eq('privacy_level', selectedPrivacy.value)
+  if (selectedType.value && selectedType.value !== 'all') query = query.eq('doc_type', selectedType.value)
 
   // Category filter: join through document_categories
-  if (selectedCategory.value) {
+  if (selectedCategory.value && selectedCategory.value !== 'all') {
     const { data: catDocs } = await supabase
       .from('document_categories')
       .select('document_id')

@@ -7,7 +7,7 @@ const router = useRouter()
 
 const files = ref<File[]>([])
 const privacyLevel = ref('shared')
-const docType = ref('')
+const docType = ref('auto')
 const uploading = ref(false)
 const progress = ref(0)
 const results = ref<Array<{ filename: string; status: string; id?: string }>>([])
@@ -19,7 +19,7 @@ const privacyOptions = [
 ]
 
 const docTypeOptions = [
-  { label: 'Auto-detect', value: '' },
+  { label: 'Auto-detect', value: 'auto' },
   { label: 'Letter', value: 'letter' },
   { label: 'Contract', value: 'contract' },
   { label: 'Minutes', value: 'minutes' },
@@ -99,7 +99,7 @@ async function uploadAll() {
         file_size_bytes: file.size,
         mime_type: file.type,
         title: file.name.replace(/\.[^.]+$/, ''),
-        doc_type: docType.value,
+        doc_type: docType.value === 'auto' ? '' : docType.value,
         privacy_level: privacyLevel.value,
       })
     } catch (err: any) {

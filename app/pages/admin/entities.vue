@@ -7,11 +7,11 @@ const toast = useToast()
 
 const entities = ref<any[]>([])
 const loading = ref(true)
-const filterType = ref('')
+const filterType = ref('all')
 const filterConfirmed = ref('all')
 
 const entityTypes = [
-  { label: 'All types', value: '' },
+  { label: 'All types', value: 'all' },
   { label: 'Asset', value: 'asset' },
   { label: 'Contractor', value: 'contractor' },
   { label: 'Person', value: 'person' },
@@ -60,7 +60,7 @@ async function fetchEntities() {
   try {
     const headers = await getAuthHeaders()
     const params: Record<string, string> = {}
-    if (filterType.value) params.type = filterType.value
+    if (filterType.value && filterType.value !== 'all') params.type = filterType.value
     if (filterConfirmed.value !== 'all') params.confirmed = filterConfirmed.value
 
     const query = new URLSearchParams(params).toString()

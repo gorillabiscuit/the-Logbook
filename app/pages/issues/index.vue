@@ -6,10 +6,10 @@ const { isAdmin } = useAuth()
 
 const issues = ref<any[]>([])
 const loading = ref(true)
-const filterStatus = ref('')
+const filterStatus = ref('all')
 
 const statusOptions = [
-  { label: 'All statuses', value: '' },
+  { label: 'All statuses', value: 'all' },
   { label: 'Open', value: 'open' },
   { label: 'In progress', value: 'in_progress' },
   { label: 'Resolved', value: 'resolved' },
@@ -22,7 +22,7 @@ async function fetchIssues() {
   try {
     const { data: { session } } = await supabase.auth.getSession()
     const params: Record<string, string> = {}
-    if (filterStatus.value) params.status = filterStatus.value
+    if (filterStatus.value && filterStatus.value !== 'all') params.status = filterStatus.value
 
     const query = new URLSearchParams(params).toString()
     issues.value = await $fetch(`/api/issues${query ? '?' + query : ''}`, {

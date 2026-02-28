@@ -8,10 +8,10 @@ const toast = useToast()
 const events = ref<any[]>([])
 const loading = ref(true)
 const showForm = ref(false)
-const filterType = ref('')
+const filterType = ref('all')
 
 const eventTypes = [
-  { label: 'All types', value: '' },
+  { label: 'All types', value: 'all' },
   { label: 'AGM', value: 'agm' },
   { label: 'Rule change', value: 'rule_change' },
   { label: 'Maintenance', value: 'maintenance' },
@@ -39,7 +39,7 @@ async function fetchEvents() {
   try {
     const headers = await getAuthHeaders()
     const params: Record<string, string> = {}
-    if (filterType.value) params.event_type = filterType.value
+    if (filterType.value && filterType.value !== 'all') params.event_type = filterType.value
 
     const query = new URLSearchParams(params).toString()
     events.value = await $fetch(`/api/timeline${query ? '?' + query : ''}`, { headers })

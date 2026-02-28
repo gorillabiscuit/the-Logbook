@@ -13,7 +13,7 @@ const editingId = ref<string | null>(null)
 const form = reactive({
   name: '',
   description: '',
-  parent_id: '',
+  parent_id: 'none',
 })
 
 async function getAuthHeaders() {
@@ -45,7 +45,7 @@ const categoryTree = computed(() => {
 const parentOptions = computed(() => {
   const parents = categories.value.filter(c => !c.parent_id)
   return [
-    { label: 'None (top-level)', value: '' },
+    { label: 'None (top-level)', value: 'none' },
     ...parents.map(p => ({ label: p.name, value: p.id })),
   ]
 })
@@ -53,7 +53,7 @@ const parentOptions = computed(() => {
 function resetForm() {
   form.name = ''
   form.description = ''
-  form.parent_id = ''
+  form.parent_id = 'none'
   editingId.value = null
   showForm.value = false
 }
@@ -62,7 +62,7 @@ function startEdit(cat: any) {
   editingId.value = cat.id
   form.name = cat.name
   form.description = cat.description || ''
-  form.parent_id = cat.parent_id || ''
+  form.parent_id = cat.parent_id || 'none'
   showForm.value = true
 }
 
@@ -74,14 +74,14 @@ async function saveCategory() {
       await $fetch(`/api/admin/categories/${editingId.value}`, {
         method: 'PATCH',
         headers,
-        body: { name: form.name, description: form.description || null, parent_id: form.parent_id || null },
+        body: { name: form.name, description: form.description || null, parent_id: form.parent_id === 'none' ? null : form.parent_id || null },
       })
       toast.add({ title: 'Category updated', color: 'success' })
     } else {
       await $fetch('/api/admin/categories', {
         method: 'POST',
         headers,
-        body: { name: form.name, description: form.description || null, parent_id: form.parent_id || null },
+        body: { name: form.name, description: form.description || null, parent_id: form.parent_id === 'none' ? null : form.parent_id || null },
       })
       toast.add({ title: 'Category created', color: 'success' })
     }
