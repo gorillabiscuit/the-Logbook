@@ -105,26 +105,33 @@ export async function processDocument(documentId: string): Promise<void> {
 
   const results: StageResult[] = []
 
-  // Stage 1: Text Extraction
-  let extractedText = ''
-  const extractionResult = await runStage(documentId, 'extraction', async () => {
-    extractedText = await extractText(doc.file_url, doc.mime_type)
-    await supabase
-      .from('documents')
-      .update({ extracted_text: extractedText })
-      .eq('id', documentId)
-  })
-  results.push(extractionResult)
+  // Stage 1: Text Extraction (skip if already extracted)
+  let extractedText = doc.extracted_text ?? ''
+  if (extractedText) {
+    // Text already exists — skip extraction, just log it
+    await logStageStart(documentId, 'extraction')
+    await logStageComplete(documentId, 'extraction')
+    results.push({ stage: 'extraction', success: true })
+  } else {
+    const extractionResult = await runStage(documentId, 'extraction', async () => {
+      extractedText = await extractText(doc.file_url, doc.mime_type)
+      await supabase
+        .from('documents')
+        .update({ extracted_text: extractedText })
+        .eq('id', documentId)
+    })
+    results.push(extractionResult)
 
-  if (!extractionResult.success) {
-    await supabase
-      .from('documents')
-      .update({
-        processing_status: 'failed',
-        processing_error: `Extraction failed: ${extractionResult.error}`,
-      })
-      .eq('id', documentId)
-    return
+    if (!extractionResult.success) {
+      await supabase
+        .from('documents')
+        .update({
+          processing_status: 'failed',
+          processing_error: `Extraction failed: ${extractionResult.error}`,
+        })
+        .eq('id', documentId)
+      return
+    }
   }
 
   // Stage 2: PII Scrubbing
