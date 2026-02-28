@@ -4,7 +4,7 @@
  * Each stage is logged independently; failures are captured without losing partial results.
  */
 
-type PipelineStage = 'extraction' | 'pii_scrub' | 'categorization' | 'embedding' | 'indexing'
+type PipelineStage = 'extraction' | 'pii_scrub' | 'categorization' | 'embedding' | 'indexing' | 'entity_extraction'
 
 interface StageResult {
   stage: PipelineStage
@@ -207,6 +207,12 @@ export async function processDocument(documentId: string): Promise<void> {
     })
   })
   results.push(indexingResult)
+
+  // Stage 6: Entity Extraction (knowledge graph)
+  const entityResult = await runStage(documentId, 'entity_extraction', async () => {
+    await extractEntities(extractedText, documentId)
+  })
+  results.push(entityResult)
 
   // Determine final status
   const anyFailed = results.some(r => !r.success)
