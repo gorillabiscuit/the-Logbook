@@ -11,9 +11,8 @@ interface Profile {
   created_at: string
 }
 
-const profile = ref<Profile | null>(null)
-
 export function useProfile() {
+  const profile = useState<Profile | null>('profile', () => null)
   const supabase = useSupabaseClient()
   const user = useSupabaseUser()
 
