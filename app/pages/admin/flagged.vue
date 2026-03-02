@@ -20,6 +20,8 @@ const loading = ref(true)
 // Track selected categories per document
 const selectedCategories = ref<Record<string, string[]>>({})
 const approving = ref<Record<string, boolean>>({})
+const discarding = ref<Record<string, boolean>>({})
+const discardModalDocId = ref<string | null>(null)
 
 // Flat list of categories for display
 const categoryOptions = computed(() => {
@@ -80,6 +82,26 @@ const approve = async (docId: string) => {
     toast.add({ title: 'Approval failed', description: err.data?.message ?? err.message, color: 'error' })
   } finally {
     approving.value[docId] = false
+  }
+}
+
+const discard = async () => {
+  const docId = discardModalDocId.value
+  if (!docId) return
+  discarding.value[docId] = true
+  try {
+    const headers = await getAuthHeaders()
+    await $fetch(`/api/documents/${docId}`, {
+      method: 'DELETE',
+      headers,
+    })
+    discardModalDocId.value = null
+    toast.add({ title: 'Document discarded', color: 'success' })
+    flaggedDocs.value = flaggedDocs.value.filter(d => d.id !== docId)
+  } catch (err: any) {
+    toast.add({ title: 'Discard failed', description: err.data?.message ?? err.message, color: 'error' })
+  } finally {
+    discarding.value[docId] = false
   }
 }
 
@@ -172,6 +194,15 @@ onMounted(async () => {
           <!-- Actions -->
           <div class="flex justify-end gap-2 pt-2">
             <UButton
+              label="Discard"
+              icon="i-heroicons-trash"
+              color="error"
+              variant="soft"
+              size="sm"
+              :loading="discarding[doc.id]"
+              @click="discardModalDocId = doc.id"
+            />
+            <UButton
               label="Approve"
               icon="i-heroicons-check"
               size="sm"
@@ -182,5 +213,35 @@ onMounted(async () => {
         </div>
       </UCard>
     </div>
+    <!-- Discard confirmation modal -->
+    <UModal :open="!!discardModalDocId" @update:open="(v: boolean) => { if (!v) discardModalDocId = null }">
+      <template #content>
+        <div class="p-6">
+          <div class="flex items-start gap-3 mb-4">
+            <UIcon name="i-heroicons-exclamation-triangle" class="w-6 h-6 text-red-500 mt-0.5" />
+            <div>
+              <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Discard document</h3>
+              <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                This will permanently delete the document and its file. Use this for irrelevant documents that shouldn't be in the system.
+              </p>
+            </div>
+          </div>
+          <div class="flex justify-end gap-2">
+            <UButton
+              label="Cancel"
+              variant="outline"
+              @click="discardModalDocId = null"
+            />
+            <UButton
+              label="Discard"
+              color="error"
+              icon="i-heroicons-trash"
+              :loading="discardModalDocId ? discarding[discardModalDocId] : false"
+              @click="discard"
+            />
+          </div>
+        </div>
+      </template>
+    </UModal>
   </div>
 </template>
