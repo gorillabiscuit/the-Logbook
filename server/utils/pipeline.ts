@@ -249,14 +249,28 @@ export async function processDocument(documentId: string): Promise<void> {
     overallConfidence = result.confidence
     sensitivityTier = result.sensitivityTier
     await updateStageProgress(documentId, 'categorization', 80, 'Saving categorization results...')
+
+    // Build update payload
+    const updatePayload: Record<string, any> = {
+      ai_summary: result.summary,
+      ai_confidence: result.confidence,
+      doc_date: result.extractedDate ?? doc.doc_date,
+      sensitivity_tier: sensitivityTier,
+    }
+
+    // When auto_analyze is set, let AI fill in title and doc_type
+    if (doc.auto_analyze) {
+      if (result.suggestedTitle) {
+        updatePayload.title = result.suggestedTitle
+      }
+      if (result.suggestedDocType) {
+        updatePayload.doc_type = result.suggestedDocType
+      }
+    }
+
     await supabase
       .from('documents')
-      .update({
-        ai_summary: result.summary,
-        ai_confidence: result.confidence,
-        doc_date: result.extractedDate ?? doc.doc_date,
-        sensitivity_tier: sensitivityTier,
-      })
+      .update(updatePayload)
       .eq('id', documentId)
   })
   results.push(categorizationResult)
@@ -360,15 +374,22 @@ export async function processDocument(documentId: string): Promise<void> {
   results.push(embeddingResult)
 
   // Stage 5: Meilisearch Indexing (uses heavy-scrubbed text for PII safety)
+  // Re-fetch doc to get potentially updated title/doc_type from categorization
+  const { data: updatedDoc } = await supabase
+    .from('documents')
+    .select('title, doc_type, doc_date')
+    .eq('id', documentId)
+    .single()
+
   const indexingResult = await runStage(documentId, 'indexing', async () => {
     await updateStageProgress(documentId, 'indexing', 30, 'Indexing in search...')
     await indexDocument(documentId, {
-      title: doc.title ?? doc.original_filename ?? 'Untitled',
+      title: updatedDoc?.title ?? doc.title ?? doc.original_filename ?? 'Untitled',
       content: scrubbedTextForIndex, // Index heavy-scrubbed text — PII safety
       privacy_level: doc.privacy_level,
       sensitivity_tier: sensitivityTier,
-      doc_type: doc.doc_type,
-      doc_date: doc.doc_date,
+      doc_type: updatedDoc?.doc_type ?? doc.doc_type,
+      doc_date: updatedDoc?.doc_date ?? doc.doc_date,
       uploaded_by: doc.uploaded_by,
       created_at: doc.created_at,
     })

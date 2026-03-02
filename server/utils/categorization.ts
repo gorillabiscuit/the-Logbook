@@ -24,6 +24,8 @@ interface CategorizationResult {
   confidence: number
   extractedDate: string | null
   sensitivityTier: SensitivityTier
+  suggestedTitle: string | null
+  suggestedDocType: string | null
 }
 
 /**
@@ -43,7 +45,7 @@ export async function categorizeDocument(
     .order('name')
 
   if (!categories || categories.length === 0) {
-    return { categories: [], summary: '', confidence: 0, extractedDate: null, sensitivityTier: 'scheme_ops' }
+    return { categories: [], summary: '', confidence: 0, extractedDate: null, sensitivityTier: 'scheme_ops', suggestedTitle: null, suggestedDocType: null }
   }
 
   // Build category tree string for the prompt
@@ -73,7 +75,9 @@ You must respond with ONLY a JSON object (no markdown, no explanation) matching 
   ],
   "summary": "<2-3 sentence summary of the document>",
   "overallConfidence": <0.0-1.0>,
-  "extractedDate": "<YYYY-MM-DD or null>"
+  "extractedDate": "<YYYY-MM-DD or null>",
+  "suggestedTitle": "<descriptive document title>",
+  "suggestedDocType": "<one of: letter, contract, minutes, invoice, financial_statement, legal_opinion, photo, notice, email, other>"
 }
 
 Rules:
@@ -82,6 +86,8 @@ Rules:
 - overallConfidence reflects how sure you are about ALL your categorizations combined
 - extractedDate is the date the document was created/sent (NOT today's date), null if not identifiable
 - summary should be factual and useful for a trustee reviewing documents
+- suggestedTitle should be a clear, descriptive title that identifies the document. Include key details like parties involved, dates, or subject matter. Example: "The Yacht Club Constitution — Amended 20 May 2023" rather than just "Constitution"
+- suggestedDocType should be the best matching document type from the list above
 
 Category tree:
 ${categoryTree}`,
@@ -108,7 +114,7 @@ ${categoryTree}`,
     parsed = JSON.parse(jsonMatch[0])
   } catch (parseError) {
     console.error('Failed to parse categorization response:', content.text, parseError)
-    return { categories: [], summary: '', confidence: 0, extractedDate: null, sensitivityTier: 'scheme_ops' }
+    return { categories: [], summary: '', confidence: 0, extractedDate: null, sensitivityTier: 'scheme_ops', suggestedTitle: null, suggestedDocType: null }
   }
 
   // Insert category links
@@ -173,5 +179,7 @@ ${categoryTree}`,
     confidence: typeof parsed.overallConfidence === 'number' ? parsed.overallConfidence : 0.5,
     extractedDate: parsed.extractedDate ?? null,
     sensitivityTier,
+    suggestedTitle: parsed.suggestedTitle ?? null,
+    suggestedDocType: parsed.suggestedDocType ?? null,
   }
 }

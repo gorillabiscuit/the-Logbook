@@ -113,6 +113,7 @@ export default defineEventHandler(async (event) => {
         source_channel: sourceChannel,
         processing_status: 'pending',
         email_context: context,
+        auto_analyze: true,
       })
       .select('id')
       .single()
@@ -182,6 +183,7 @@ export default defineEventHandler(async (event) => {
             processing_status: 'pending',
             email_context: emailContext,
             file_hash: attachmentHash,
+            auto_analyze: true,
           })
           .select('id')
           .single()

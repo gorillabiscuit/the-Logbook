@@ -10,7 +10,9 @@ const user = useSupabaseUser()
 const toast = useToast()
 const router = useRouter()
 
-const schema = z.object({
+const autoAnalyze = ref(true)
+
+const schemaManual = z.object({
   title: z.string().min(1, 'Title is required'),
   doc_type: z.string().min(1, 'Document type is required'),
   doc_date: z.string().optional(),
@@ -18,14 +20,22 @@ const schema = z.object({
   category_ids: z.array(z.string()).optional(),
 })
 
-type FormState = z.infer<typeof schema>
+const schemaAuto = z.object({
+  title: z.string().optional(),
+  doc_type: z.string().optional(),
+  doc_date: z.string().optional(),
+  privacy_level: z.enum(['shared', 'private', 'privileged']),
+  category_ids: z.array(z.string()).optional(),
+})
 
-const state = reactive<FormState>({
+const activeSchema = computed(() => autoAnalyze.value ? schemaAuto : schemaManual)
+
+const state = reactive({
   title: '',
   doc_type: '',
   doc_date: '',
-  privacy_level: 'shared',
-  category_ids: [],
+  privacy_level: 'shared' as 'shared' | 'private' | 'privileged',
+  category_ids: [] as string[],
 })
 
 const selectedFile = ref<File | null>(null)
@@ -168,7 +178,7 @@ const upload = async () => {
       .from('documents')
       .insert({
         uploaded_by: sessionUser.id,
-        title: state.title,
+        title: state.title || file.name.replace(/\.[^.]+$/, ''),
         original_filename: file.name,
         file_url: storagePath,
         file_size_bytes: file.size,
@@ -179,6 +189,7 @@ const upload = async () => {
         source_channel: 'web_upload',
         processing_status: 'pending',
         file_hash: fileHash.value || null,
+        auto_analyze: autoAnalyze.value,
       })
       .select('id')
       .single()
@@ -202,7 +213,13 @@ const upload = async () => {
       })
     }
 
-    toast.add({ title: 'Document uploaded', description: 'Processing has started automatically.', color: 'success' })
+    toast.add({
+      title: 'Document uploaded',
+      description: autoAnalyze.value
+        ? 'AI is analysing, categorising, and naming your document.'
+        : 'Processing has started automatically.',
+      color: 'success',
+    })
     await router.push(`/documents/${doc.id}`)
   } catch (err: any) {
     toast.add({ title: 'Upload failed', description: err.message, color: 'error' })
@@ -239,7 +256,7 @@ const upload = async () => {
     </div>
 
     <UCard>
-      <UForm :schema="schema" :state="state" @submit="upload" class="space-y-5">
+      <UForm :schema="activeSchema" :state="state" @submit="upload" class="space-y-5">
         <!-- File picker -->
         <UFormField label="File" name="file" required>
           <div
@@ -277,26 +294,51 @@ const upload = async () => {
           </div>
         </UFormField>
 
-        <!-- Title -->
-        <UFormField label="Title" name="title" required>
-          <UInput v-model="state.title" placeholder="Document title" class="w-full" />
-        </UFormField>
+        <!-- Auto-analyse toggle -->
+        <label class="flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors"
+          :class="autoAnalyze
+            ? 'border-primary-500 bg-primary-50 dark:bg-primary-950 dark:border-primary-700'
+            : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'"
+        >
+          <input type="checkbox" v-model="autoAnalyze" class="mt-0.5 text-primary-600 rounded" />
+          <div>
+            <div class="text-sm font-medium text-gray-900 dark:text-white">Let AI analyse this document</div>
+            <div class="text-xs text-gray-500 dark:text-gray-400">
+              AI will read the document and generate a descriptive title, select the document type, and assign categories automatically.
+            </div>
+          </div>
+        </label>
 
-        <!-- Doc type & date row -->
-        <div class="grid grid-cols-2 gap-4">
-          <UFormField label="Document type" name="doc_type" required>
-            <USelect
-              v-model="state.doc_type"
-              :items="docTypeOptions"
-              value-key="value"
-              placeholder="Select type"
-              class="w-full"
-            />
+        <!-- Manual metadata fields (collapsed when auto-analyse is on) -->
+        <template v-if="!autoAnalyze">
+          <!-- Title -->
+          <UFormField label="Title" name="title" required>
+            <UInput v-model="state.title" placeholder="Document title" class="w-full" />
           </UFormField>
-          <UFormField label="Document date" name="doc_date">
-            <UInput v-model="state.doc_date" type="date" class="w-full" />
+
+          <!-- Doc type & date row -->
+          <div class="grid grid-cols-2 gap-4">
+            <UFormField label="Document type" name="doc_type" required>
+              <USelect
+                v-model="state.doc_type"
+                :items="docTypeOptions"
+                value-key="value"
+                placeholder="Select type"
+                class="w-full"
+              />
+            </UFormField>
+            <UFormField label="Document date" name="doc_date">
+              <UInput v-model="state.doc_date" type="date" class="w-full" />
+            </UFormField>
+          </div>
+        </template>
+
+        <template v-else>
+          <!-- Minimal fields when auto-analyse is on -->
+          <UFormField label="Title (optional — AI will generate one)" name="title">
+            <UInput v-model="state.title" placeholder="Leave blank for AI-generated title" class="w-full" />
           </UFormField>
-        </div>
+        </template>
 
         <!-- Privacy level -->
         <UFormField label="Privacy level" name="privacy_level" required>
@@ -323,8 +365,8 @@ const upload = async () => {
           </div>
         </UFormField>
 
-        <!-- Categories -->
-        <UFormField label="Categories" name="category_ids">
+        <!-- Categories (hidden when auto-analyse is on) -->
+        <UFormField v-if="!autoAnalyze" label="Categories" name="category_ids">
           <div class="max-h-48 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg divide-y divide-gray-100 dark:divide-gray-800">
             <label
               v-for="cat in categoryOptions"
