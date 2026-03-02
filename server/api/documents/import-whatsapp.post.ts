@@ -70,10 +70,13 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 500, statusMessage: dbError.message })
   }
 
-  // Fire-and-forget processing (will skip extraction since text is pre-filled)
-  processDocument(doc.id).catch(err => {
+  // Use waitUntil to keep the function alive on Vercel while processing runs
+  const processingPromise = processDocument(doc.id).catch(err => {
     console.error(`Pipeline failed for WhatsApp import ${doc.id}:`, err)
   })
+  if (typeof (event as any).waitUntil === 'function') {
+    ;(event as any).waitUntil(processingPromise)
+  }
 
   return {
     documentId: doc.id,

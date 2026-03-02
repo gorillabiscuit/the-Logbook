@@ -7,6 +7,11 @@ const supabase = useSupabaseClient()
 const toast = useToast()
 const { hasRole } = useAuth()
 
+async function getAuthHeaders() {
+  const { data: { session } } = await supabase.auth.getSession()
+  return { Authorization: `Bearer ${session?.access_token}` }
+}
+
 const isAdmin = computed(() => hasRole(['super_admin', 'trustee']))
 const flaggedDocs = ref<any[]>([])
 const allCategories = ref<Array<{ id: string; name: string; parent_id: string | null }>>([])
@@ -35,7 +40,8 @@ const categoryOptions = computed(() => {
 const fetchFlagged = async () => {
   loading.value = true
   try {
-    const data = await $fetch<any[]>('/api/admin/flagged')
+    const headers = await getAuthHeaders()
+    const data = await $fetch<any[]>('/api/admin/flagged', { headers })
     flaggedDocs.value = data
 
     // Initialize selected categories from AI suggestions
@@ -62,8 +68,10 @@ const fetchCategories = async () => {
 const approve = async (docId: string) => {
   approving.value[docId] = true
   try {
+    const headers = await getAuthHeaders()
     await $fetch(`/api/admin/flagged/${docId}/approve`, {
       method: 'POST',
+      headers,
       body: { categoryIds: selectedCategories.value[docId] ?? [] },
     })
     toast.add({ title: 'Document approved', color: 'success' })

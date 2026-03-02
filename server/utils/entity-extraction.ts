@@ -162,14 +162,17 @@ Rules:
     entityIdMap[entity.name.trim()] = entityId
 
     // Create entity mention (link entity to document)
-    await supabase
+    const { error: mentionError } = await supabase
       .from('entity_mentions')
       .insert({
         entity_id: entityId,
         document_id: documentId,
         context_snippet: entity.contextSnippet?.slice(0, 500) || null,
       })
-      .catch(() => {}) // Ignore duplicate mention errors
+    // Ignore duplicate mention errors
+    if (mentionError) {
+      console.warn(`Entity mention insert skipped for ${entity.name}:`, mentionError.message)
+    }
   }
 
   // Create relations

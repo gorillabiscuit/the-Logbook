@@ -34,6 +34,7 @@ export default defineEventHandler(async (event) => {
   }
 
   const results: Array<{ id: string; filename: string; status: string }> = []
+  const processingPromises: Promise<void>[] = []
 
   for (const doc of documents) {
     try {
@@ -61,12 +62,21 @@ export default defineEventHandler(async (event) => {
 
       results.push({ id: record.id, filename: doc.original_filename, status: 'pending' })
 
-      // Fire-and-forget processing
-      processDocument(record.id).catch(err => {
-        console.error(`Pipeline failed for bulk document ${record.id}:`, err)
-      })
+      processingPromises.push(
+        processDocument(record.id).catch(err => {
+          console.error(`Pipeline failed for bulk document ${record.id}:`, err)
+        })
+      )
     } catch (err: any) {
       results.push({ id: '', filename: doc.original_filename, status: `error: ${err.message}` })
+    }
+  }
+
+  // Use waitUntil to keep the function alive on Vercel while processing runs
+  if (processingPromises.length > 0) {
+    const allProcessing = Promise.all(processingPromises)
+    if (typeof (event as any).waitUntil === 'function') {
+      ;(event as any).waitUntil(allProcessing)
     }
   }
 

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { TableColumn } from '@nuxt/ui'
+import type { SortingState, VisibilityState } from '@tanstack/vue-table'
 
 definePageMeta({
   middleware: 'auth',
@@ -8,12 +9,30 @@ definePageMeta({
 const supabase = useSupabaseClient()
 const { query: searchQuery, results: searchResults, totalHits, searching, isSearchMode } = useSearch()
 
+const route = useRoute()
+
 const selectedPrivacy = ref<string>('all')
 const selectedType = ref<string>('all')
+const selectedStatus = ref<string>((route.query.status as string) || 'all')
 const selectedCategory = ref<string>('all')
 const loading = ref(false)
 const documents = ref<any[]>([])
 const categories = ref<Array<{ id: string; name: string; parent_id: string | null }>>([])
+
+// Table features
+const sorting = ref<SortingState>([{ id: 'created_at', desc: true }])
+const columnVisibility = ref<VisibilityState>({})
+const compact = ref(false)
+const tableRef = useTemplateRef('table')
+
+const statusFilterOptions = [
+  { label: 'All statuses', value: 'all' },
+  { label: 'Completed', value: 'completed' },
+  { label: 'Processing', value: 'processing' },
+  { label: 'Pending', value: 'pending' },
+  { label: 'Failed', value: 'failed' },
+  { label: 'Flagged', value: 'flagged_for_review' },
+]
 
 const privacyFilterOptions = [
   { label: 'All privacy', value: 'all' },
@@ -40,6 +59,18 @@ const privacyColors: Record<string, 'success' | 'warning' | 'error'> = {
   shared: 'success',
   private: 'warning',
   privileged: 'error',
+}
+
+const sensitivityColors: Record<string, 'success' | 'warning' | 'error'> = {
+  scheme_ops: 'success',
+  personal_financial: 'warning',
+  privileged_legal: 'error',
+}
+
+const sensitivityLabels: Record<string, string> = {
+  scheme_ops: 'Scheme Ops',
+  personal_financial: 'Personal Financial',
+  privileged_legal: 'Privileged',
 }
 
 const statusColors: Record<string, 'neutral' | 'warning' | 'success' | 'error'> = {
@@ -71,11 +102,12 @@ const fetchDocuments = async () => {
 
   let query = supabase
     .from('documents')
-    .select('id, title, original_filename, privacy_level, doc_type, doc_date, processing_status, ai_summary, created_at')
+    .select('id, title, original_filename, privacy_level, sensitivity_tier, doc_type, doc_date, processing_status, ai_summary, created_at')
     .order('created_at', { ascending: false })
 
   if (selectedPrivacy.value && selectedPrivacy.value !== 'all') query = query.eq('privacy_level', selectedPrivacy.value)
   if (selectedType.value && selectedType.value !== 'all') query = query.eq('doc_type', selectedType.value)
+  if (selectedStatus.value && selectedStatus.value !== 'all') query = query.eq('processing_status', selectedStatus.value)
 
   // Category filter: join through document_categories
   if (selectedCategory.value && selectedCategory.value !== 'all') {
@@ -98,8 +130,21 @@ const fetchDocuments = async () => {
     query = query.ilike('title', `%${searchQuery.value}%`)
   }
 
-  const { data } = await query.limit(50)
-  documents.value = data ?? []
+  const { data, error } = await query.limit(50)
+
+  if (error) {
+    // If the query fails (e.g. sensitivity_tier column doesn't exist yet), retry without it
+    const fallbackQuery = supabase
+      .from('documents')
+      .select('id, title, original_filename, privacy_level, doc_type, doc_date, processing_status, ai_summary, created_at')
+      .order('created_at', { ascending: false })
+      .limit(50)
+    const { data: fallbackData } = await fallbackQuery
+    documents.value = fallbackData ?? []
+  } else {
+    documents.value = data ?? []
+  }
+
   loading.value = false
 }
 
@@ -115,7 +160,7 @@ onMounted(async () => {
   await Promise.all([fetchDocuments(), fetchCategories()])
 })
 
-watch([selectedPrivacy, selectedType, selectedCategory], fetchDocuments)
+watch([selectedPrivacy, selectedType, selectedStatus, selectedCategory], fetchDocuments)
 
 // When not in search mode, use DB filtering for the text query
 const debouncedFetch = useDebounceFn(fetchDocuments, 300)
@@ -133,14 +178,25 @@ const formatDate = (date: string | null) => {
   })
 }
 
+function sortIcon(columnId: string) {
+  const s = sorting.value.find(s => s.id === columnId)
+  if (!s) return 'i-heroicons-arrows-up-down'
+  return s.desc ? 'i-heroicons-bars-arrow-down' : 'i-heroicons-bars-arrow-up'
+}
+
 const columns: TableColumn<any>[] = [
   {
     accessorKey: 'title',
     header: 'Document',
+    enableHiding: false, // always visible
   },
   {
     accessorKey: 'privacy_level',
     header: 'Privacy',
+  },
+  {
+    accessorKey: 'sensitivity_tier',
+    header: 'Sensitivity',
   },
   {
     accessorKey: 'doc_type',
@@ -160,10 +216,38 @@ const columns: TableColumn<any>[] = [
   },
 ]
 
+// Column visibility toggle items — derived from the table API
+const toggleableColumns = computed(() => {
+  const api = tableRef.value?.tableApi
+  if (!api) return []
+  return api.getAllColumns()
+    .filter((col: any) => col.getCanHide())
+    .map((col: any) => ({
+      id: col.id,
+      label: columns.find(c => c.accessorKey === col.id)?.header as string ?? col.id,
+      visible: col.getIsVisible(),
+    }))
+})
+
+function toggleColumn(colId: string) {
+  const api = tableRef.value?.tableApi
+  if (!api) return
+  const col = api.getColumn(colId)
+  if (col) col.toggleVisibility()
+}
+
+// Dynamic table UI for compact mode
+const tableUi = computed(() => {
+  if (compact.value) {
+    return { th: 'px-2 py-1.5 text-xs', td: 'px-2 py-1' }
+  }
+  return {}
+})
+
 // Display count for subtitle
 const displayCount = computed(() => {
   if (isSearchMode.value) return totalHits.value
-  return documents.length
+  return documents.value.length
 })
 </script>
 
@@ -201,6 +285,12 @@ const displayCount = computed(() => {
         <USelect
           v-model="selectedType"
           :items="docTypeFilterOptions"
+          value-key="value"
+          class="w-40"
+        />
+        <USelect
+          v-model="selectedStatus"
+          :items="statusFilterOptions"
           value-key="value"
           class="w-40"
         />
@@ -248,6 +338,14 @@ const displayCount = computed(() => {
                 <UBadge :color="privacyColors[hit.privacy_level]" variant="soft" size="xs">
                   {{ hit.privacy_level }}
                 </UBadge>
+                <UBadge
+                  v-if="hit.sensitivity_tier"
+                  :color="sensitivityColors[hit.sensitivity_tier] ?? 'neutral'"
+                  variant="soft"
+                  size="xs"
+                >
+                  {{ sensitivityLabels[hit.sensitivity_tier] ?? hit.sensitivity_tier }}
+                </UBadge>
                 <span class="text-xs text-gray-400">{{ formatDate(hit.doc_date ?? hit.created_at) }}</span>
               </div>
             </div>
@@ -269,52 +367,163 @@ const displayCount = computed(() => {
           <UButton label="Upload the first document" to="/documents/upload" variant="ghost" size="sm" class="mt-2" />
         </div>
 
-        <UTable
-          v-else
-          :data="documents"
-          :columns="columns"
-        >
-          <template #title-cell="{ row }">
-            <NuxtLink
-              :to="`/documents/${row.original.id}`"
-              class="font-medium text-gray-900 dark:text-white hover:text-primary-600 dark:hover:text-primary-400"
-            >
-              {{ row.original.title || row.original.original_filename || 'Untitled' }}
-            </NuxtLink>
-          </template>
+        <template v-else>
+          <!-- Table toolbar -->
+          <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center gap-2">
+              <!-- Compact toggle -->
+              <UButton
+                :icon="compact ? 'i-heroicons-bars-3' : 'i-heroicons-bars-4'"
+                :variant="compact ? 'soft' : 'ghost'"
+                size="xs"
+                :title="compact ? 'Normal rows' : 'Compact rows'"
+                @click="compact = !compact"
+              />
 
-          <template #privacy_level-cell="{ row }">
-            <UBadge
-              :color="privacyColors[row.original.privacy_level]"
-              variant="soft"
-              size="sm"
-            >
-              {{ row.original.privacy_level }}
-            </UBadge>
-          </template>
+              <!-- Column visibility dropdown -->
+              <UPopover>
+                <UButton
+                  icon="i-heroicons-view-columns"
+                  variant="ghost"
+                  size="xs"
+                  title="Toggle columns"
+                />
+                <template #content>
+                  <div class="p-2 space-y-1 min-w-40">
+                    <p class="text-xs font-medium text-gray-500 dark:text-gray-400 px-1 mb-2">Columns</p>
+                    <label
+                      v-for="col in toggleableColumns"
+                      :key="col.id"
+                      class="flex items-center gap-2 px-1 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        :checked="col.visible"
+                        class="rounded text-primary-500"
+                        @change="toggleColumn(col.id)"
+                      />
+                      <span class="text-sm text-gray-700 dark:text-gray-300">{{ col.label }}</span>
+                    </label>
+                  </div>
+                </template>
+              </UPopover>
+            </div>
+            <span class="text-xs text-gray-400">{{ documents.length }} rows</span>
+          </div>
 
-          <template #doc_type-cell="{ row }">
-            <span class="text-sm text-gray-500 dark:text-gray-400">{{ row.original.doc_type || '—' }}</span>
-          </template>
+          <UTable
+            ref="table"
+            :data="documents"
+            :columns="columns"
+            v-model:sorting="sorting"
+            v-model:column-visibility="columnVisibility"
+            :ui="tableUi"
+          >
+            <!-- Sortable headers -->
+            <template #title-header="{ column }">
+              <button class="flex items-center gap-1 cursor-pointer" @click="column.toggleSorting()">
+                <span>Document</span>
+                <UIcon :name="sortIcon('title')" class="w-3.5 h-3.5 text-gray-400" />
+              </button>
+            </template>
 
-          <template #doc_date-cell="{ row }">
-            <span class="text-sm text-gray-500 dark:text-gray-400">{{ formatDate(row.original.doc_date) }}</span>
-          </template>
+            <template #privacy_level-header="{ column }">
+              <button class="flex items-center gap-1 cursor-pointer" @click="column.toggleSorting()">
+                <span>Privacy</span>
+                <UIcon :name="sortIcon('privacy_level')" class="w-3.5 h-3.5 text-gray-400" />
+              </button>
+            </template>
 
-          <template #processing_status-cell="{ row }">
-            <UBadge
-              :color="statusColors[row.original.processing_status] ?? 'neutral'"
-              variant="soft"
-              size="sm"
-            >
-              {{ row.original.processing_status?.replace(/_/g, ' ') }}
-            </UBadge>
-          </template>
+            <template #sensitivity_tier-header="{ column }">
+              <button class="flex items-center gap-1 cursor-pointer" @click="column.toggleSorting()">
+                <span>Sensitivity</span>
+                <UIcon :name="sortIcon('sensitivity_tier')" class="w-3.5 h-3.5 text-gray-400" />
+              </button>
+            </template>
 
-          <template #created_at-cell="{ row }">
-            <span class="text-sm text-gray-500 dark:text-gray-400">{{ formatDate(row.original.created_at) }}</span>
-          </template>
-        </UTable>
+            <template #doc_type-header="{ column }">
+              <button class="flex items-center gap-1 cursor-pointer" @click="column.toggleSorting()">
+                <span>Type</span>
+                <UIcon :name="sortIcon('doc_type')" class="w-3.5 h-3.5 text-gray-400" />
+              </button>
+            </template>
+
+            <template #doc_date-header="{ column }">
+              <button class="flex items-center gap-1 cursor-pointer" @click="column.toggleSorting()">
+                <span>Date</span>
+                <UIcon :name="sortIcon('doc_date')" class="w-3.5 h-3.5 text-gray-400" />
+              </button>
+            </template>
+
+            <template #processing_status-header="{ column }">
+              <button class="flex items-center gap-1 cursor-pointer" @click="column.toggleSorting()">
+                <span>Status</span>
+                <UIcon :name="sortIcon('processing_status')" class="w-3.5 h-3.5 text-gray-400" />
+              </button>
+            </template>
+
+            <template #created_at-header="{ column }">
+              <button class="flex items-center gap-1 cursor-pointer" @click="column.toggleSorting()">
+                <span>Uploaded</span>
+                <UIcon :name="sortIcon('created_at')" class="w-3.5 h-3.5 text-gray-400" />
+              </button>
+            </template>
+
+            <!-- Cell templates -->
+            <template #title-cell="{ row }">
+              <NuxtLink
+                :to="`/documents/${row.original.id}`"
+                class="font-medium text-gray-900 dark:text-white hover:text-primary-600 dark:hover:text-primary-400"
+              >
+                {{ row.original.title || row.original.original_filename || 'Untitled' }}
+              </NuxtLink>
+            </template>
+
+            <template #privacy_level-cell="{ row }">
+              <UBadge
+                :color="privacyColors[row.original.privacy_level]"
+                variant="soft"
+                :size="compact ? 'xs' : 'sm'"
+              >
+                {{ row.original.privacy_level }}
+              </UBadge>
+            </template>
+
+            <template #sensitivity_tier-cell="{ row }">
+              <UBadge
+                v-if="row.original.sensitivity_tier"
+                :color="sensitivityColors[row.original.sensitivity_tier] ?? 'neutral'"
+                variant="soft"
+                :size="compact ? 'xs' : 'sm'"
+              >
+                {{ sensitivityLabels[row.original.sensitivity_tier] ?? row.original.sensitivity_tier }}
+              </UBadge>
+              <span v-else class="text-sm text-gray-400">—</span>
+            </template>
+
+            <template #doc_type-cell="{ row }">
+              <span class="text-sm text-gray-500 dark:text-gray-400">{{ row.original.doc_type || '—' }}</span>
+            </template>
+
+            <template #doc_date-cell="{ row }">
+              <span class="text-sm text-gray-500 dark:text-gray-400">{{ formatDate(row.original.doc_date) }}</span>
+            </template>
+
+            <template #processing_status-cell="{ row }">
+              <UBadge
+                :color="statusColors[row.original.processing_status] ?? 'neutral'"
+                variant="soft"
+                :size="compact ? 'xs' : 'sm'"
+              >
+                {{ row.original.processing_status?.replace(/_/g, ' ') }}
+              </UBadge>
+            </template>
+
+            <template #created_at-cell="{ row }">
+              <span class="text-sm text-gray-500 dark:text-gray-400">{{ formatDate(row.original.created_at) }}</span>
+            </template>
+          </UTable>
+        </template>
       </UCard>
     </div>
   </div>

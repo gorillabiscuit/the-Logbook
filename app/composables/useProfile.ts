@@ -17,8 +17,7 @@ export function useProfile() {
   const user = useSupabaseUser()
 
   const fetchProfile = async () => {
-    if (!user.value) {
-      profile.value = null
+    if (!user.value?.id) {
       return
     }
 

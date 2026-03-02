@@ -15,6 +15,7 @@
     "@nuxtjs/supabase": "^2.0.4",
     "@tailwindcss/vite": "^4.2.1",
     "@vueuse/nuxt": "^14.2.1",
+    "googleapis": "^171.4.0",
     "meilisearch": "^0.55.0",
     "nuxt": "^4.3.1",
     "tailwindcss": "^4.2.1",

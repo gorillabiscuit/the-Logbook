@@ -16,11 +16,14 @@ function getAnthropicClient(): Anthropic {
   return _client
 }
 
+type SensitivityTier = 'scheme_ops' | 'personal_financial' | 'privileged_legal'
+
 interface CategorizationResult {
   categories: Array<{ categoryId: string; confidence: number }>
   summary: string
   confidence: number
   extractedDate: string | null
+  sensitivityTier: SensitivityTier
 }
 
 /**
@@ -40,7 +43,7 @@ export async function categorizeDocument(
     .order('name')
 
   if (!categories || categories.length === 0) {
-    return { categories: [], summary: '', confidence: 0, extractedDate: null }
+    return { categories: [], summary: '', confidence: 0, extractedDate: null, sensitivityTier: 'scheme_ops' }
   }
 
   // Build category tree string for the prompt
@@ -105,7 +108,7 @@ ${categoryTree}`,
     parsed = JSON.parse(jsonMatch[0])
   } catch (parseError) {
     console.error('Failed to parse categorization response:', content.text, parseError)
-    return { categories: [], summary: '', confidence: 0, extractedDate: null }
+    return { categories: [], summary: '', confidence: 0, extractedDate: null, sensitivityTier: 'scheme_ops' }
   }
 
   // Insert category links
@@ -135,10 +138,40 @@ ${categoryTree}`,
     }
   }
 
+  // Determine sensitivity tier from category rules
+  const assignedCategoryIds = categoryResults.map(c => c.categoryId)
+  let sensitivityTier: SensitivityTier = 'scheme_ops'
+
+  if (assignedCategoryIds.length > 0) {
+    const { data: rules } = await supabase
+      .from('sensitivity_rules')
+      .select('sensitivity_tier')
+      .in('category_id', assignedCategoryIds)
+
+    if (rules && rules.length > 0) {
+      const tierPriority: Record<string, number> = {
+        privileged_legal: 3,
+        personal_financial: 2,
+        scheme_ops: 1,
+      }
+      sensitivityTier = rules.reduce((highest, r) => {
+        const rTier = r.sensitivity_tier as SensitivityTier
+        return (tierPriority[rTier] ?? 0) > (tierPriority[highest] ?? 0) ? rTier : highest
+      }, 'scheme_ops' as SensitivityTier)
+    }
+  }
+
+  // Store sensitivity tier on the document
+  await supabase
+    .from('documents')
+    .update({ sensitivity_tier: sensitivityTier })
+    .eq('id', documentId)
+
   return {
     categories: categoryResults,
     summary: parsed.summary ?? '',
     confidence: typeof parsed.overallConfidence === 'number' ? parsed.overallConfidence : 0.5,
     extractedDate: parsed.extractedDate ?? null,
+    sensitivityTier,
   }
 }

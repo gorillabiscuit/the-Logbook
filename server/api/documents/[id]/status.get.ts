@@ -23,7 +23,7 @@ export default defineEventHandler(async (event) => {
   // Also fetch processing log stages
   const { data: stages } = await supabase
     .from('processing_log')
-    .select('stage, status, error_message, started_at, completed_at')
+    .select('stage, status, error_message, started_at, completed_at, progress, detail')
     .eq('document_id', documentId)
     .order('created_at', { ascending: true })
 

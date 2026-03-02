@@ -35,6 +35,7 @@ async function ensureIndex(client: MeiliSearch) {
     const index = client.index(INDEX_NAME)
     await index.updateFilterableAttributes([
       'privacy_level',
+      'sensitivity_tier',
       'doc_type',
       'uploaded_by',
     ])
@@ -47,6 +48,7 @@ interface DocumentIndexPayload {
   title: string
   content: string
   privacy_level: string
+  sensitivity_tier?: string
   doc_type: string | null
   doc_date: string | null
   uploaded_by: string | null

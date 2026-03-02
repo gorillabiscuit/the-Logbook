@@ -1,15 +1,23 @@
 <script setup lang="ts">
 const { profile, signOut } = useAuth()
 
-const navLinks = [
-  { label: 'Dashboard', icon: 'i-heroicons-home', to: '/' },
-  { label: 'Documents', icon: 'i-heroicons-document-text', to: '/documents' },
-  { label: 'Chat', icon: 'i-heroicons-chat-bubble-left-right', to: '/chat' },
-  { label: 'Issues', icon: 'i-heroicons-exclamation-triangle', to: '/issues' },
-  { label: 'Notices', icon: 'i-heroicons-bell', to: '/notices' },
-  { label: 'Contractors', icon: 'i-heroicons-wrench-screwdriver', to: '/contractors' },
-  { label: 'Timeline', icon: 'i-heroicons-calendar-days', to: '/timeline' },
-]
+const isTenant = computed(() => profile.value?.role === 'tenant')
+
+const navLinks = computed(() => {
+  const links = [
+    { label: 'Dashboard', icon: 'i-heroicons-home', to: '/' },
+    { label: 'Documents', icon: 'i-heroicons-document-text', to: '/documents' },
+    { label: 'Chat', icon: 'i-heroicons-chat-bubble-left-right', to: '/chat' },
+    { label: 'Issues', icon: 'i-heroicons-exclamation-triangle', to: '/issues' },
+    { label: 'Notices', icon: 'i-heroicons-bell', to: '/notices' },
+    { label: 'Contractors', icon: 'i-heroicons-wrench-screwdriver', to: '/contractors' },
+    { label: 'Timeline', icon: 'i-heroicons-calendar-days', to: '/timeline' },
+  ]
+  if (!isTenant.value) {
+    links.push({ label: 'Drive Sync', icon: 'i-heroicons-cloud-arrow-down', to: '/drive' })
+  }
+  return links
+})
 
 const adminLinks = [
   { label: 'Users', icon: 'i-heroicons-users', to: '/admin/users' },

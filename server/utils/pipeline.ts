@@ -1,10 +1,16 @@
 /**
  * Document processing pipeline orchestrator.
- * Runs stages sequentially: extraction → PII scrub → categorization → embedding → indexing.
+ * Runs stages sequentially:
+ *   extraction → categorization → pii_scrub → embedding → indexing → entity_extraction
+ *
+ * Categorization runs before PII scrub so we know the sensitivity tier,
+ * which determines the scrub strategy (light/heavy/skip).
+ *
  * Each stage is logged independently; failures are captured without losing partial results.
  */
 
 type PipelineStage = 'extraction' | 'pii_scrub' | 'categorization' | 'embedding' | 'indexing' | 'entity_extraction'
+type SensitivityTier = 'scheme_ops' | 'personal_financial' | 'privileged_legal'
 
 interface StageResult {
   stage: PipelineStage
@@ -22,6 +28,8 @@ async function logStageStart(documentId: string, stage: PipelineStage) {
     stage,
     status: 'running',
     started_at: new Date().toISOString(),
+    progress: 0,
+    detail: null,
   })
 }
 
@@ -49,7 +57,34 @@ async function logStageComplete(documentId: string, stage: PipelineStage, error?
         status: error ? 'failed' : 'completed',
         error_message: error ?? null,
         completed_at: new Date().toISOString(),
+        progress: error ? undefined : 100,
+        detail: error ? `Failed: ${error}` : 'Complete',
       })
+      .eq('id', existing.id)
+  }
+}
+
+/**
+ * Updates the progress and detail of a running pipeline stage.
+ * Called at key moments within each stage for live progress feedback.
+ */
+async function updateStageProgress(documentId: string, stage: PipelineStage, progress: number, detail: string) {
+  const supabase = useSupabaseAdmin()
+
+  const { data: existing } = await supabase
+    .from('processing_log')
+    .select('id')
+    .eq('document_id', documentId)
+    .eq('stage', stage)
+    .eq('status', 'running')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .single()
+
+  if (existing) {
+    await supabase
+      .from('processing_log')
+      .update({ progress, detail })
       .eq('id', existing.id)
   }
 }
@@ -76,8 +111,10 @@ async function runStage(
 
 /**
  * Runs the full document processing pipeline.
- * Each stage depends on the previous one — if extraction fails,
- * subsequent stages are skipped.
+ * Stage order: extraction → categorization → pii_scrub → embedding → indexing → entity_extraction
+ *
+ * Categorization runs before PII scrub so the sensitivity tier is known,
+ * which determines the scrub strategy.
  */
 export async function processDocument(documentId: string): Promise<void> {
   const supabase = useSupabaseAdmin()
@@ -114,7 +151,10 @@ export async function processDocument(documentId: string): Promise<void> {
     results.push({ stage: 'extraction', success: true })
   } else {
     const extractionResult = await runStage(documentId, 'extraction', async () => {
-      extractedText = await extractText(doc.file_url, doc.mime_type)
+      extractedText = await extractText(doc.file_url, doc.mime_type, async (progress, detail) => {
+        await updateStageProgress(documentId, 'extraction', progress, detail)
+      })
+      await updateStageProgress(documentId, 'extraction', 95, 'Saving extracted text...')
       await supabase
         .from('documents')
         .update({ extracted_text: extractedText })
@@ -134,57 +174,116 @@ export async function processDocument(documentId: string): Promise<void> {
     }
   }
 
-  // Stage 2: PII Scrubbing
-  let scrubbedText = ''
-  const piiResult = await runStage(documentId, 'pii_scrub', async () => {
-    scrubbedText = await scrubPII(extractedText)
-    await supabase
-      .from('documents')
-      .update({ scrubbed_text: scrubbedText })
-      .eq('id', documentId)
-  })
-  results.push(piiResult)
-
-  // If PII scrub fails, use extracted text as scrubbed (conservative fallback)
-  if (!piiResult.success) {
-    scrubbedText = extractedText
-  }
-
-  // Stage 3: AI Categorization
+  // Stage 2: AI Categorization (moved before PII scrub to determine sensitivity tier)
   let overallConfidence = 1.0
+  let sensitivityTier: SensitivityTier = 'scheme_ops'
   const categorizationResult = await runStage(documentId, 'categorization', async () => {
+    await updateStageProgress(documentId, 'categorization', 20, 'Analyzing document with AI...')
     const result = await categorizeDocument(extractedText, documentId)
     overallConfidence = result.confidence
+    sensitivityTier = result.sensitivityTier
+    await updateStageProgress(documentId, 'categorization', 80, 'Saving categorization results...')
     await supabase
       .from('documents')
       .update({
         ai_summary: result.summary,
         ai_confidence: result.confidence,
         doc_date: result.extractedDate ?? doc.doc_date,
+        sensitivity_tier: sensitivityTier,
       })
       .eq('id', documentId)
   })
   results.push(categorizationResult)
 
+  // Stage 3: PII Scrubbing (tier-aware)
+  let scrubbedTextForIndex = ''
+  const piiResult = await runStage(documentId, 'pii_scrub', async () => {
+    if (sensitivityTier === 'privileged_legal') {
+      await updateStageProgress(documentId, 'pii_scrub', 50, 'Skipping scrub (privileged legal)')
+      // Skip scrubbing for privileged legal docs — access is role-restricted
+      // Set scrubbed_text to extracted for backwards compat
+      await supabase
+        .from('documents')
+        .update({
+          scrubbed_text: extractedText,
+          scrubbed_text_heavy: null,
+          scrubbed_text_light: null,
+        })
+        .eq('id', documentId)
+      scrubbedTextForIndex = extractedText
+      return
+    }
+
+    // Always run heavy scrub
+    await updateStageProgress(documentId, 'pii_scrub', 20, 'Running heavy PII scrub...')
+    const heavyScrubbed = await scrubPII(extractedText, 'heavy')
+
+    if (sensitivityTier === 'scheme_ops') {
+      // Scheme ops: run both light and heavy
+      await updateStageProgress(documentId, 'pii_scrub', 60, 'Running light PII scrub...')
+      const lightScrubbed = await scrubPII(extractedText, 'light')
+      await updateStageProgress(documentId, 'pii_scrub', 90, 'Saving scrubbed text...')
+      await supabase
+        .from('documents')
+        .update({
+          scrubbed_text: heavyScrubbed, // backwards compat
+          scrubbed_text_heavy: heavyScrubbed,
+          scrubbed_text_light: lightScrubbed,
+        })
+        .eq('id', documentId)
+      scrubbedTextForIndex = heavyScrubbed
+    } else {
+      // personal_financial: heavy only
+      await updateStageProgress(documentId, 'pii_scrub', 90, 'Saving scrubbed text...')
+      await supabase
+        .from('documents')
+        .update({
+          scrubbed_text: heavyScrubbed, // backwards compat
+          scrubbed_text_heavy: heavyScrubbed,
+          scrubbed_text_light: null,
+        })
+        .eq('id', documentId)
+      scrubbedTextForIndex = heavyScrubbed
+    }
+  })
+  results.push(piiResult)
+
+  // If PII scrub fails, use extracted text as fallback for indexing
+  if (!piiResult.success) {
+    scrubbedTextForIndex = extractedText
+  }
+
   // Stage 4: Chunking + Embeddings
   const embeddingResult = await runStage(documentId, 'embedding', async () => {
+    await updateStageProgress(documentId, 'embedding', 10, 'Chunking text...')
     const chunks = chunkText(extractedText)
 
     if (chunks.length === 0) return
 
-    const embeddings = await generateEmbeddings(chunks.map(c => c.content))
+    const batchSize = 50
+    const totalBatches = Math.ceil(chunks.length / batchSize)
+    const allEmbeddings: number[][] = []
+
+    for (let i = 0; i < chunks.length; i += batchSize) {
+      const batchNum = Math.floor(i / batchSize) + 1
+      const progressPct = 20 + Math.round((batchNum / totalBatches) * 60)
+      await updateStageProgress(documentId, 'embedding', progressPct, `Generating embeddings (batch ${batchNum} of ${totalBatches})...`)
+      const batch = chunks.slice(i, i + batchSize)
+      const batchEmbeddings = await generateEmbeddings(batch.map(c => c.content))
+      allEmbeddings.push(...batchEmbeddings)
+    }
 
     // Delete existing chunks for this document (in case of reprocessing)
+    await updateStageProgress(documentId, 'embedding', 85, 'Saving chunks to database...')
     await supabase.from('chunks').delete().eq('document_id', documentId)
 
     // Insert chunks with embeddings in batches
-    const batchSize = 50
     for (let i = 0; i < chunks.length; i += batchSize) {
       const batch = chunks.slice(i, i + batchSize).map((chunk, j) => ({
         document_id: documentId,
         content: chunk.content,
         chunk_index: chunk.chunkIndex,
-        embedding: JSON.stringify(embeddings[i + j]),
+        embedding: JSON.stringify(allEmbeddings[i + j]),
         metadata: chunk.metadata,
       }))
 
@@ -194,12 +293,14 @@ export async function processDocument(documentId: string): Promise<void> {
   })
   results.push(embeddingResult)
 
-  // Stage 5: Meilisearch Indexing
+  // Stage 5: Meilisearch Indexing (uses heavy-scrubbed text for PII safety)
   const indexingResult = await runStage(documentId, 'indexing', async () => {
+    await updateStageProgress(documentId, 'indexing', 30, 'Indexing in search...')
     await indexDocument(documentId, {
       title: doc.title ?? doc.original_filename ?? 'Untitled',
-      content: scrubbedText, // Index scrubbed text, not raw — PII safety
+      content: scrubbedTextForIndex, // Index heavy-scrubbed text — PII safety
       privacy_level: doc.privacy_level,
+      sensitivity_tier: sensitivityTier,
       doc_type: doc.doc_type,
       doc_date: doc.doc_date,
       uploaded_by: doc.uploaded_by,
@@ -210,6 +311,7 @@ export async function processDocument(documentId: string): Promise<void> {
 
   // Stage 6: Entity Extraction (knowledge graph)
   const entityResult = await runStage(documentId, 'entity_extraction', async () => {
+    await updateStageProgress(documentId, 'entity_extraction', 20, 'Extracting entities with AI...')
     await extractEntities(extractedText, documentId)
   })
   results.push(entityResult)

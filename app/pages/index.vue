@@ -113,9 +113,11 @@ const processingColor: Record<string, string> = {
               {{ stats.documents.flagged }} flagged for review
             </UBadge>
           </NuxtLink>
-          <UBadge v-if="stats.documents.failed > 0" color="error" variant="soft" size="md">
-            {{ stats.documents.failed }} processing failed
-          </UBadge>
+          <NuxtLink v-if="stats.documents.failed > 0" to="/documents?status=failed">
+            <UBadge color="error" variant="soft" size="md">
+              {{ stats.documents.failed }} processing failed
+            </UBadge>
+          </NuxtLink>
           <UBadge color="success" variant="soft" size="md">
             {{ stats.documents.processed }} processed
           </UBadge>

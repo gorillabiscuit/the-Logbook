@@ -7,6 +7,14 @@ export default defineNuxtConfig({
 
   modules: ['@nuxt/ui', '@nuxtjs/supabase', '@vueuse/nuxt'],
 
+  nitro: {
+    vercel: {
+      functions: {
+        maxDuration: 300,
+      },
+    },
+  },
+
   supabase: {
     redirectOptions: {
       login: '/login',
@@ -24,8 +32,11 @@ export default defineNuxtConfig({
     emailWebhookSecret: '',
     unstructuredApiKey: '',
     unstructuredApiUrl: '',
+    googleClientId: '',
+    googleClientSecret: '',
     public: {
       meilisearchHost: '',
+      appUrl: '',
     },
   },
 })
