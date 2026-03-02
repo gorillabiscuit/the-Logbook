@@ -162,6 +162,31 @@ const processingColor: Record<string, string> = {
         </div>
       </div>
 
+      <!-- Email ingestion tip -->
+      <UCard class="mb-8">
+        <div class="flex items-start gap-3">
+          <UIcon name="i-heroicons-envelope" class="w-5 h-5 text-primary-500 mt-0.5 shrink-0" />
+          <div>
+            <h3 class="text-sm font-semibold text-gray-900 dark:text-white">Submit documents via email</h3>
+            <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+              The easiest way to contribute is to forward emails or attach documents to one of these addresses. They'll be automatically processed, categorized, and searchable.
+            </p>
+            <div class="mt-3 space-y-2">
+              <div class="flex items-center gap-2">
+                <UBadge color="success" variant="soft" size="xs">shared</UBadge>
+                <code class="text-sm text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">share@logbook.yachtclub.co.za</code>
+                <span class="text-xs text-gray-400">Visible to all members</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <UBadge color="warning" variant="soft" size="xs">private</UBadge>
+                <code class="text-sm text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">private@logbook.yachtclub.co.za</code>
+                <span class="text-xs text-gray-400">Visible to you and trustees only</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </UCard>
+
       <!-- Recent activity -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <!-- Recent documents -->

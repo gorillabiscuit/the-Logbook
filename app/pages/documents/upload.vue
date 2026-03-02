@@ -217,6 +217,15 @@ const upload = async () => {
       </p>
     </div>
 
+    <div class="flex items-center gap-2 px-3 py-2 mb-4 rounded-lg bg-gray-50 dark:bg-gray-800/50 text-sm text-gray-500 dark:text-gray-400">
+      <UIcon name="i-heroicons-envelope" class="w-4 h-4 shrink-0" />
+      <span>
+        You can also forward emails to
+        <code class="text-gray-700 dark:text-gray-300">share@logbook.yachtclub.co.za</code> or
+        <code class="text-gray-700 dark:text-gray-300">private@logbook.yachtclub.co.za</code>
+      </span>
+    </div>
+
     <UCard>
       <UForm :schema="schema" :state="state" @submit="upload" class="space-y-5">
         <!-- File picker -->
