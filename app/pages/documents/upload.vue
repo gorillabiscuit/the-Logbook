@@ -95,29 +95,41 @@ const categoryOptions = computed(() => {
   return result
 })
 
+const dragging = ref(false)
+
+async function handleFile(file: File) {
+  selectedFile.value = file
+  if (!state.title) {
+    state.title = file.name.replace(/\.[^.]+$/, '')
+  }
+
+  fileHash.value = null
+  duplicateMatch.value = null
+  try {
+    const hash = await computeHash(file)
+    fileHash.value = hash
+    const result = await checkDuplicate(hash)
+    if (result.isDuplicate && result.match) {
+      duplicateMatch.value = result.match
+      duplicateModalOpen.value = true
+    }
+  } catch {
+    // Non-critical — upload will still work, pipeline catches duplicates server-side
+  }
+}
+
 const onFileChange = async (event: Event) => {
   const input = event.target as HTMLInputElement
   if (input.files?.[0]) {
-    selectedFile.value = input.files[0]
-    // Pre-fill title from filename if empty
-    if (!state.title) {
-      state.title = input.files[0].name.replace(/\.[^.]+$/, '')
-    }
+    await handleFile(input.files[0])
+  }
+}
 
-    // Compute hash and check for duplicates in background
-    fileHash.value = null
-    duplicateMatch.value = null
-    try {
-      const hash = await computeHash(input.files[0])
-      fileHash.value = hash
-      const result = await checkDuplicate(hash)
-      if (result.isDuplicate && result.match) {
-        duplicateMatch.value = result.match
-        duplicateModalOpen.value = true
-      }
-    } catch {
-      // Non-critical — upload will still work, pipeline catches duplicates server-side
-    }
+const onDrop = async (event: DragEvent) => {
+  dragging.value = false
+  const file = event.dataTransfer?.files?.[0]
+  if (file) {
+    await handleFile(file)
   }
 }
 
@@ -231,8 +243,15 @@ const upload = async () => {
         <!-- File picker -->
         <UFormField label="File" name="file" required>
           <div
-            class="border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-lg p-6 text-center hover:border-primary-400 transition-colors cursor-pointer"
+            class="border-2 border-dashed rounded-lg p-6 text-center transition-colors cursor-pointer"
+            :class="dragging
+              ? 'border-primary-500 bg-primary-50 dark:bg-primary-950/30'
+              : 'border-gray-300 dark:border-gray-700 hover:border-primary-400'"
             @click="($refs.fileInput as HTMLInputElement).click()"
+            @dragover.prevent="dragging = true"
+            @dragenter.prevent="dragging = true"
+            @dragleave.prevent="dragging = false"
+            @drop.prevent="onDrop"
           >
             <input
               ref="fileInput"
@@ -249,8 +268,10 @@ const upload = async () => {
               <p v-if="hashComputing" class="text-xs text-gray-400 mt-1">Checking for duplicates...</p>
             </template>
             <template v-else>
-              <UIcon name="i-heroicons-arrow-up-tray" class="w-8 h-8 text-gray-400 mx-auto mb-2" />
-              <p class="text-sm text-gray-500 dark:text-gray-400">Click to select a file</p>
+              <UIcon name="i-heroicons-arrow-up-tray" class="w-8 h-8 mx-auto mb-2" :class="dragging ? 'text-primary-500' : 'text-gray-400'" />
+              <p class="text-sm" :class="dragging ? 'text-primary-600 dark:text-primary-400' : 'text-gray-500 dark:text-gray-400'">
+                {{ dragging ? 'Drop file here' : 'Drag and drop a file here, or click to browse' }}
+              </p>
               <p class="text-xs text-gray-400 mt-0.5">PDF, DOCX, JPG, PNG, TXT, EML</p>
             </template>
           </div>
