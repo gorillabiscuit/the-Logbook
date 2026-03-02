@@ -12,7 +12,7 @@ export default defineEventHandler(async (event) => {
 
   const { data: doc, error } = await supabase
     .from('documents')
-    .select('id, processing_status, processing_error, ai_summary, ai_confidence, processed_at')
+    .select('id, processing_status, processing_error, ai_summary, ai_confidence, processed_at, retry_count')
     .eq('id', documentId)
     .single()
 
@@ -34,6 +34,7 @@ export default defineEventHandler(async (event) => {
     summary: doc.ai_summary,
     confidence: doc.ai_confidence,
     processedAt: doc.processed_at,
+    retryCount: doc.retry_count ?? 0,
     stages: stages ?? [],
   }
 })

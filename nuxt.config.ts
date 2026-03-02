@@ -30,6 +30,7 @@ export default defineNuxtConfig({
     embeddingApiKey: '',
     meilisearchApiKey: '',
     emailWebhookSecret: '',
+    cronSecret: '',
     unstructuredApiKey: '',
     unstructuredApiUrl: '',
     googleClientId: '',

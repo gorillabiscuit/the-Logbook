@@ -56,9 +56,12 @@ export default defineEventHandler(async (event) => {
       processing_error: null,
       extracted_text: null,
       scrubbed_text: null,
+      scrubbed_text_light: null,
+      scrubbed_text_heavy: null,
       ai_summary: null,
       ai_confidence: null,
       processed_at: null,
+      retry_count: 0,
     })
     .eq('id', documentId)
 

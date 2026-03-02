@@ -7,7 +7,10 @@ definePageMeta({
 })
 
 const supabase = useSupabaseClient()
+const { hasRole } = useAuth()
 const { query: searchQuery, results: searchResults, totalHits, searching, isSearchMode } = useSearch()
+
+const isAdmin = computed(() => hasRole(['super_admin', 'trustee']))
 
 const route = useRoute()
 
@@ -81,6 +84,35 @@ const statusColors: Record<string, 'neutral' | 'warning' | 'success' | 'error'> 
   flagged_for_review: 'warning',
 }
 
+// Detect stuck documents based on created_at time
+function isDocStuck(doc: any): boolean {
+  if (!doc.processing_status || !['pending', 'processing'].includes(doc.processing_status)) return false
+  const createdAt = new Date(doc.created_at).getTime()
+  const now = Date.now()
+  const elapsed = now - createdAt
+  if (doc.processing_status === 'processing') return elapsed > 10 * 60 * 1000 // 10 min
+  if (doc.processing_status === 'pending') return elapsed > 5 * 60 * 1000 // 5 min
+  return false
+}
+
+const retryingDocId = ref<string | null>(null)
+
+async function retryDocument(docId: string) {
+  retryingDocId.value = docId
+  try {
+    const { data: { session } } = await supabase.auth.getSession()
+    await $fetch(`/api/documents/${docId}/reprocess`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${session?.access_token}` },
+    })
+    await fetchDocuments()
+  } catch {
+    // Silently fail — user can try again
+  } finally {
+    retryingDocId.value = null
+  }
+}
+
 // Build category filter options (flat with parent > child format)
 const categoryFilterOptions = computed(() => {
   const parents = categories.value.filter(c => !c.parent_id)
@@ -102,7 +134,7 @@ const fetchDocuments = async () => {
 
   let query = supabase
     .from('documents')
-    .select('id, title, original_filename, privacy_level, sensitivity_tier, doc_type, doc_date, processing_status, ai_summary, created_at')
+    .select('id, title, original_filename, privacy_level, sensitivity_tier, doc_type, doc_date, processing_status, ai_summary, created_at, retry_count')
     .order('created_at', { ascending: false })
 
   if (selectedPrivacy.value && selectedPrivacy.value !== 'all') query = query.eq('privacy_level', selectedPrivacy.value)
@@ -510,13 +542,36 @@ const displayCount = computed(() => {
             </template>
 
             <template #processing_status-cell="{ row }">
-              <UBadge
-                :color="statusColors[row.original.processing_status] ?? 'neutral'"
-                variant="soft"
-                :size="compact ? 'xs' : 'sm'"
-              >
-                {{ row.original.processing_status?.replace(/_/g, ' ') }}
-              </UBadge>
+              <div class="flex items-center gap-1.5">
+                <UBadge
+                  v-if="isDocStuck(row.original)"
+                  color="error"
+                  variant="soft"
+                  :size="compact ? 'xs' : 'sm'"
+                >
+                  stuck
+                </UBadge>
+                <UBadge
+                  v-else
+                  :color="statusColors[row.original.processing_status] ?? 'neutral'"
+                  variant="soft"
+                  :size="compact ? 'xs' : 'sm'"
+                >
+                  {{ row.original.processing_status?.replace(/_/g, ' ') }}
+                </UBadge>
+                <span v-if="row.original.retry_count > 0" class="text-xs text-gray-400">
+                  ({{ row.original.retry_count }}x)
+                </span>
+                <UButton
+                  v-if="isDocStuck(row.original) && isAdmin"
+                  icon="i-heroicons-arrow-path"
+                  size="xs"
+                  variant="ghost"
+                  :loading="retryingDocId === row.original.id"
+                  title="Retry processing"
+                  @click.prevent="retryDocument(row.original.id)"
+                />
+              </div>
             </template>
 
             <template #created_at-cell="{ row }">

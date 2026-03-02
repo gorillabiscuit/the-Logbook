@@ -109,7 +109,7 @@ export async function extractText(
         'unstructured-api-key': apiKey as string,
       },
       body: formData,
-      signal: AbortSignal.timeout(600000), // 10 minute timeout for large PDFs
+      signal: AbortSignal.timeout(240000), // 4 minute timeout (fits within Vercel's 5-min limit)
     })
 
     if (!response.ok) {

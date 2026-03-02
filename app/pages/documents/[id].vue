@@ -134,6 +134,27 @@ const statusColors: Record<string, 'neutral' | 'warning' | 'success' | 'error'> 
   flagged_for_review: 'warning',
 }
 
+// Detect if document is stuck — uses processing stage timestamps for precision
+const isStuck = computed(() => {
+  if (!doc.value || !['pending', 'processing'].includes(doc.value.processing_status)) return false
+
+  // Check if any stage has been "running" for >10 minutes
+  if (processingStages.value.length > 0) {
+    const runningStage = processingStages.value.find((s: any) => s.status === 'running')
+    if (runningStage?.started_at) {
+      const elapsed = Date.now() - new Date(runningStage.started_at).getTime()
+      if (elapsed > 10 * 60 * 1000) return true
+    }
+  }
+
+  // Fallback: check created_at
+  const createdAt = new Date(doc.value.created_at).getTime()
+  const elapsed = Date.now() - createdAt
+  if (doc.value.processing_status === 'processing') return elapsed > 10 * 60 * 1000
+  if (doc.value.processing_status === 'pending') return elapsed > 5 * 60 * 1000
+  return false
+})
+
 const stageStatusColors: Record<string, 'neutral' | 'warning' | 'success' | 'error'> = {
   pending: 'neutral',
   running: 'warning',
@@ -231,6 +252,13 @@ const startPolling = () => {
   pollInterval = setInterval(async () => {
     await fetchDocument()
     await fetchStatus()
+
+    // Stop polling if stuck — user can manually retry
+    if (isStuck.value) {
+      stopPolling()
+      return
+    }
+
     if (doc.value && !['pending', 'processing'].includes(doc.value.processing_status)) {
       stopPolling()
       await fetchCategories()
@@ -493,7 +521,28 @@ onUnmounted(stopPolling)
 
       <!-- Processing status (shown while processing or on failure) -->
       <UCard v-if="['pending', 'processing'].includes(doc.processing_status)">
-        <div class="flex items-center gap-3 mb-4">
+        <div v-if="isStuck" class="flex items-start gap-3 mb-4">
+          <UIcon name="i-heroicons-exclamation-triangle" class="w-5 h-5 text-red-500 mt-0.5" />
+          <div class="flex-1">
+            <p class="font-medium text-red-800 dark:text-red-200">Document appears stuck</p>
+            <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+              Processing has not progressed for an extended period.
+              <span v-if="doc.retry_count > 0">Retried {{ doc.retry_count }} time{{ doc.retry_count > 1 ? 's' : '' }}.</span>
+              <span v-if="doc.retry_count >= 3"> Maximum retries reached — consider uploading a different format.</span>
+            </p>
+            <UButton
+              v-if="isAdmin && doc.retry_count < 3"
+              icon="i-heroicons-arrow-path"
+              label="Retry now"
+              size="sm"
+              variant="outline"
+              class="mt-2"
+              :loading="reprocessing"
+              @click="reprocess"
+            />
+          </div>
+        </div>
+        <div v-else class="flex items-center gap-3 mb-4">
           <UIcon name="i-heroicons-arrow-path" class="w-5 h-5 text-primary-500 animate-spin" />
           <span class="font-medium text-gray-900 dark:text-white">Processing document...</span>
         </div>
