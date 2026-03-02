@@ -32,6 +32,12 @@ const selectedFile = ref<File | null>(null)
 const uploading = ref(false)
 const categories = ref<Array<{ id: string; name: string; parent_id: string | null }>>([])
 
+// Deduplication
+const { computing: hashComputing, computeHash, checkDuplicate } = useFileHash()
+const fileHash = ref<string | null>(null)
+const duplicateMatch = ref<{ id: string; title: string; created_at: string; privacy_level: string } | null>(null)
+const duplicateModalOpen = ref(false)
+
 const docTypeOptions = [
   { label: 'Letter', value: 'letter' },
   { label: 'Contract', value: 'contract' },
@@ -89,13 +95,28 @@ const categoryOptions = computed(() => {
   return result
 })
 
-const onFileChange = (event: Event) => {
+const onFileChange = async (event: Event) => {
   const input = event.target as HTMLInputElement
   if (input.files?.[0]) {
     selectedFile.value = input.files[0]
     // Pre-fill title from filename if empty
     if (!state.title) {
       state.title = input.files[0].name.replace(/\.[^.]+$/, '')
+    }
+
+    // Compute hash and check for duplicates in background
+    fileHash.value = null
+    duplicateMatch.value = null
+    try {
+      const hash = await computeHash(input.files[0])
+      fileHash.value = hash
+      const result = await checkDuplicate(hash)
+      if (result.isDuplicate && result.match) {
+        duplicateMatch.value = result.match
+        duplicateModalOpen.value = true
+      }
+    } catch {
+      // Non-critical — upload will still work, pipeline catches duplicates server-side
     }
   }
 }
@@ -145,6 +166,7 @@ const upload = async () => {
         doc_date: state.doc_date || null,
         source_channel: 'web_upload',
         processing_status: 'pending',
+        file_hash: fileHash.value || null,
       })
       .select('id')
       .single()
@@ -215,6 +237,7 @@ const upload = async () => {
               <UIcon name="i-heroicons-document-check" class="w-8 h-8 text-primary-500 mx-auto mb-2" />
               <p class="text-sm font-medium text-gray-900 dark:text-white">{{ selectedFile.name }}</p>
               <p class="text-xs text-gray-500 mt-0.5">{{ (selectedFile.size / 1024).toFixed(1) }} KB</p>
+              <p v-if="hashComputing" class="text-xs text-gray-400 mt-1">Checking for duplicates...</p>
             </template>
             <template v-else>
               <UIcon name="i-heroicons-arrow-up-tray" class="w-8 h-8 text-gray-400 mx-auto mb-2" />
@@ -302,5 +325,42 @@ const upload = async () => {
         </div>
       </UForm>
     </UCard>
+
+    <!-- Duplicate detected modal -->
+    <UModal v-model:open="duplicateModalOpen">
+      <template #content>
+        <div class="p-6">
+          <div class="flex items-start gap-3 mb-4">
+            <UIcon name="i-heroicons-document-duplicate" class="w-6 h-6 text-amber-500 mt-0.5" />
+            <div>
+              <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Duplicate file detected</h3>
+              <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                This file already exists as
+                <strong class="text-gray-900 dark:text-white">{{ duplicateMatch?.title || 'Untitled' }}</strong>
+                (uploaded {{ duplicateMatch?.created_at ? new Date(duplicateMatch.created_at).toLocaleDateString('en-ZA', { year: 'numeric', month: 'short', day: 'numeric' }) : '' }}).
+              </p>
+            </div>
+          </div>
+          <div class="flex justify-end gap-2">
+            <UButton
+              label="Cancel"
+              variant="outline"
+              @click="duplicateModalOpen = false; selectedFile = null; fileHash = null; duplicateMatch = null"
+            />
+            <UButton
+              label="View existing"
+              icon="i-heroicons-eye"
+              variant="outline"
+              :to="`/documents/${duplicateMatch?.id}`"
+            />
+            <UButton
+              label="Upload anyway"
+              icon="i-heroicons-arrow-up-tray"
+              @click="duplicateModalOpen = false"
+            />
+          </div>
+        </div>
+      </template>
+    </UModal>
   </div>
 </template>

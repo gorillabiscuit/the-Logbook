@@ -153,6 +153,9 @@ export default defineEventHandler(async (event) => {
         const ext = attachment.Name.split('.').pop() || 'bin'
         const storagePath = `email/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
 
+        // Compute file hash for dedup (pipeline Tier 1 will catch matches)
+        const attachmentHash = computeFileHash(buffer)
+
         const { error: storageError } = await supabase.storage
           .from('documents')
           .upload(storagePath, buffer, {
@@ -178,6 +181,7 @@ export default defineEventHandler(async (event) => {
             source_channel: sourceChannel,
             processing_status: 'pending',
             email_context: emailContext,
+            file_hash: attachmentHash,
           })
           .select('id')
           .single()

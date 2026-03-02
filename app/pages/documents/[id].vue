@@ -16,6 +16,21 @@ const processingStages = ref<any[]>([])
 const loading = ref(true)
 const textView = ref('scrubbed')
 const reprocessing = ref(false)
+const deleting = ref(false)
+const deleteModalOpen = ref(false)
+
+// Deduplication
+const canonicalDoc = ref<{ id: string; title: string | null } | null>(null)
+const documentCopies = ref<Array<{ id: string; title: string | null; created_at: string | null }>>([])
+
+const isDuplicate = computed(() => !!doc.value?.canonical_document_id)
+const isCanonical = computed(() => !doc.value?.canonical_document_id && documentCopies.value.length > 0)
+
+const dedupStatusLabels: Record<string, string> = {
+  exact_file_match: 'Exact file match',
+  text_match: 'Text content match',
+  manual_link: 'Manually linked',
+}
 
 const isAdmin = computed(() => hasRole(['super_admin', 'trustee']))
 const isSubmitter = computed(() => doc.value?.uploaded_by === profile.value?.id)
@@ -163,6 +178,7 @@ const stageStatusColors: Record<string, 'neutral' | 'warning' | 'success' | 'err
 }
 
 const stageLabels: Record<string, string> = {
+  dedup: 'Duplicate Check',
   extraction: 'Text Extraction',
   categorization: 'AI Categorization',
   pii_scrub: 'PII Scrubbing',
@@ -172,6 +188,7 @@ const stageLabels: Record<string, string> = {
 }
 
 const stageIcons: Record<string, string> = {
+  dedup: 'i-heroicons-document-duplicate',
   extraction: 'i-heroicons-document-text',
   categorization: 'i-heroicons-tag',
   pii_scrub: 'i-heroicons-shield-check',
@@ -235,6 +252,29 @@ const fetchCategories = async () => {
   categories.value = data ?? []
 }
 
+const fetchDedupInfo = async () => {
+  if (!doc.value) return
+
+  // If this is a duplicate, fetch the canonical document info
+  if (doc.value.canonical_document_id) {
+    const { data } = await supabase
+      .from('documents')
+      .select('id, title')
+      .eq('id', doc.value.canonical_document_id)
+      .single()
+    canonicalDoc.value = data
+  }
+
+  // Fetch any copies that point to this document as canonical
+  const { data: copies } = await supabase
+    .from('documents')
+    .select('id, title, created_at')
+    .eq('canonical_document_id', documentId)
+    .order('created_at', { ascending: true })
+
+  documentCopies.value = copies ?? []
+}
+
 const fetchStatus = async () => {
   try {
     const data = await $fetch(`/api/documents/${documentId}/status`)
@@ -261,7 +301,7 @@ const startPolling = () => {
 
     if (doc.value && !['pending', 'processing'].includes(doc.value.processing_status)) {
       stopPolling()
-      await fetchCategories()
+      await Promise.all([fetchCategories(), fetchDedupInfo()])
       const status = doc.value.processing_status
       if (status === 'completed' || status === 'flagged_for_review') {
         toast.add({ title: 'Processing complete', color: 'success' })
@@ -294,6 +334,24 @@ const reprocess = async () => {
     toast.add({ title: 'Reprocess failed', description: err.data?.message ?? err.message, color: 'error' })
   } finally {
     reprocessing.value = false
+  }
+}
+
+const deleteDocument = async () => {
+  deleting.value = true
+  try {
+    const { data: { session } } = await supabase.auth.getSession()
+    await $fetch(`/api/documents/${documentId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${session?.access_token}` },
+    })
+    deleteModalOpen.value = false
+    toast.add({ title: 'Document deleted', color: 'success' })
+    navigateTo('/documents')
+  } catch (err: any) {
+    toast.add({ title: 'Delete failed', description: err.data?.message ?? err.message, color: 'error' })
+  } finally {
+    deleting.value = false
   }
 }
 
@@ -355,7 +413,7 @@ onMounted(async () => {
       }
     }
   }
-  await Promise.all([fetchDocument(), fetchCategories(), fetchStatus()])
+  await Promise.all([fetchDocument(), fetchCategories(), fetchStatus(), fetchDedupInfo()])
   loading.value = false
 
   // Start polling if document is still processing
@@ -389,6 +447,62 @@ onUnmounted(stopPolling)
     </div>
 
     <div v-else-if="doc" class="space-y-6">
+      <!-- Duplicate banner -->
+      <div
+        v-if="isDuplicate"
+        class="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-4"
+      >
+        <div class="flex items-start gap-3">
+          <UIcon name="i-heroicons-document-duplicate" class="w-5 h-5 text-amber-500 mt-0.5" />
+          <div class="flex-1">
+            <p class="text-sm font-medium text-amber-800 dark:text-amber-200">
+              This is a copy of an existing document
+            </p>
+            <p class="text-xs text-amber-700 dark:text-amber-300 mt-1">
+              Detected as {{ dedupStatusLabels[doc.dedup_status] || doc.dedup_status }}.
+              Processing results were copied from the original — no additional API costs incurred.
+            </p>
+            <NuxtLink
+              v-if="canonicalDoc"
+              :to="`/documents/${canonicalDoc.id}`"
+              class="inline-flex items-center gap-1 mt-2 text-sm text-primary-600 dark:text-primary-400 hover:underline"
+            >
+              <UIcon name="i-heroicons-arrow-right" class="w-3.5 h-3.5" />
+              View original: {{ canonicalDoc.title || 'Untitled' }}
+            </NuxtLink>
+          </div>
+        </div>
+      </div>
+
+      <!-- Copies list (shown on canonical documents) -->
+      <div
+        v-if="isCanonical"
+        class="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 p-4"
+      >
+        <div class="flex items-start gap-3">
+          <UIcon name="i-heroicons-document-duplicate" class="w-5 h-5 text-blue-500 mt-0.5" />
+          <div class="flex-1">
+            <p class="text-sm font-medium text-blue-800 dark:text-blue-200">
+              {{ documentCopies.length }} {{ documentCopies.length === 1 ? 'copy' : 'copies' }} of this document
+            </p>
+            <div class="mt-2 space-y-1">
+              <NuxtLink
+                v-for="copy in documentCopies"
+                :key="copy.id"
+                :to="`/documents/${copy.id}`"
+                class="flex items-center gap-2 text-sm text-blue-700 dark:text-blue-300 hover:underline"
+              >
+                <UIcon name="i-heroicons-document" class="w-3.5 h-3.5" />
+                {{ copy.title || 'Untitled' }}
+                <span class="text-xs text-blue-500 dark:text-blue-400">
+                  {{ new Date(copy.created_at).toLocaleDateString('en-ZA', { year: 'numeric', month: 'short', day: 'numeric' }) }}
+                </span>
+              </NuxtLink>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Metadata card -->
       <UCard>
         <div class="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
@@ -475,6 +589,15 @@ onUnmounted(stopPolling)
               size="sm"
               :loading="reprocessing"
               @click="reprocess"
+            />
+            <UButton
+              v-if="isAdmin || isSubmitter"
+              icon="i-heroicons-trash"
+              label="Delete"
+              variant="outline"
+              color="error"
+              size="sm"
+              @click="deleteModalOpen = true"
             />
           </div>
         </template>
@@ -637,6 +760,37 @@ onUnmounted(stopPolling)
           </UBadge>
         </div>
       </UCard>
+
+      <!-- Delete confirmation modal -->
+      <UModal v-model:open="deleteModalOpen">
+        <template #content>
+          <div class="p-6">
+            <div class="flex items-start gap-3 mb-4">
+              <UIcon name="i-heroicons-exclamation-triangle" class="w-6 h-6 text-red-500 mt-0.5" />
+              <div>
+                <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Delete document</h3>
+                <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                  Are you sure? This will permanently delete the document and its file. This action cannot be undone.
+                </p>
+              </div>
+            </div>
+            <div class="flex justify-end gap-2">
+              <UButton
+                label="Cancel"
+                variant="outline"
+                @click="deleteModalOpen = false"
+              />
+              <UButton
+                label="Delete"
+                color="error"
+                icon="i-heroicons-trash"
+                :loading="deleting"
+                @click="deleteDocument"
+              />
+            </div>
+          </div>
+        </template>
+      </UModal>
 
       <!-- Extracted/Scrubbed text -->
       <UCard v-if="hasText">

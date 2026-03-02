@@ -9,7 +9,7 @@
  * Each stage is logged independently; failures are captured without losing partial results.
  */
 
-type PipelineStage = 'extraction' | 'pii_scrub' | 'categorization' | 'embedding' | 'indexing' | 'entity_extraction'
+type PipelineStage = 'dedup' | 'extraction' | 'pii_scrub' | 'categorization' | 'embedding' | 'indexing' | 'entity_extraction'
 type SensitivityTier = 'scheme_ops' | 'personal_financial' | 'privileged_legal'
 
 interface StageResult {
@@ -142,6 +142,51 @@ export async function processDocument(documentId: string): Promise<void> {
 
   const results: StageResult[] = []
 
+  // Pre-stage: Tier 1 dedup (file hash check — zero API cost)
+  let tier1IsDuplicate = false
+  await logStageStart(documentId, 'dedup')
+  try {
+    let fileHash = doc.file_hash as string | null
+
+    // Compute file hash if not already set (e.g. email ingestion without pre-hash)
+    if (!fileHash && doc.file_url) {
+      await updateStageProgress(documentId, 'dedup', 20, 'Computing file hash...')
+      const { data: fileData, error: downloadError } = await supabase.storage
+        .from('documents')
+        .download(doc.file_url)
+
+      if (!downloadError && fileData) {
+        const buffer = Buffer.from(await fileData.arrayBuffer())
+        fileHash = computeFileHash(buffer)
+        await supabase
+          .from('documents')
+          .update({ file_hash: fileHash })
+          .eq('id', documentId)
+      }
+    }
+
+    // Check for Tier 1 match
+    if (fileHash) {
+      await updateStageProgress(documentId, 'dedup', 60, 'Checking for duplicate files...')
+      const dedupResult = await checkForDuplicate(documentId, fileHash)
+
+      if (dedupResult.isDuplicate && dedupResult.canonicalDocumentId) {
+        await updateStageProgress(documentId, 'dedup', 90, 'Duplicate found — linking to original...')
+        await linkDuplicate(documentId, dedupResult.canonicalDocumentId, dedupResult.matchType!)
+        tier1IsDuplicate = true
+      }
+    }
+
+    await logStageComplete(documentId, 'dedup')
+  } catch (err: any) {
+    await logStageComplete(documentId, 'dedup', err?.message ?? String(err))
+    results.push({ stage: 'dedup', success: false, error: err?.message })
+  }
+
+  // If Tier 1 found a duplicate, processing is done — linkDuplicate already set status to completed
+  if (tier1IsDuplicate) return
+  results.push({ stage: 'dedup', success: true })
+
   // Stage 1: Text Extraction (skip if already extracted)
   let extractedText = doc.extracted_text ?? ''
   if (extractedText) {
@@ -171,6 +216,27 @@ export async function processDocument(documentId: string): Promise<void> {
         })
         .eq('id', documentId)
       return
+    }
+  }
+
+  // Post-extraction: Tier 2 dedup (text fingerprint — saves Claude + embedding costs)
+  if (extractedText) {
+    const fingerprint = computeTextFingerprint(extractedText)
+    if (fingerprint) {
+      await supabase
+        .from('documents')
+        .update({ text_fingerprint: fingerprint })
+        .eq('id', documentId)
+
+      const tier2Result = await checkForDuplicate(documentId, null, fingerprint)
+      if (tier2Result.isDuplicate && tier2Result.canonicalDocumentId) {
+        // Log the Tier 2 match
+        await logStageStart(documentId, 'dedup')
+        await updateStageProgress(documentId, 'dedup', 80, 'Text content match found — linking to original...')
+        await linkDuplicate(documentId, tier2Result.canonicalDocumentId, tier2Result.matchType!)
+        await logStageComplete(documentId, 'dedup')
+        return
+      }
     }
   }
 
@@ -341,6 +407,7 @@ export async function processDocument(documentId: string): Promise<void> {
       processing_status: finalStatus,
       processing_error: failedStages.length > 0 ? failedStages.join('; ') : null,
       processed_at: new Date().toISOString(),
+      dedup_status: 'unique', // No duplicate found — this is a canonical document
     })
     .eq('id', documentId)
 }

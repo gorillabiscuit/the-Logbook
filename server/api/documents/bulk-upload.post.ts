@@ -23,6 +23,7 @@ export default defineEventHandler(async (event) => {
     title?: string
     doc_type?: string
     privacy_level?: string
+    file_hash?: string | null
   }> = body.documents
 
   if (!Array.isArray(documents) || documents.length === 0) {
@@ -51,6 +52,7 @@ export default defineEventHandler(async (event) => {
           doc_type: doc.doc_type || null,
           source_channel: 'web_upload',
           processing_status: 'pending',
+          file_hash: doc.file_hash || null,
         })
         .select('id')
         .single()

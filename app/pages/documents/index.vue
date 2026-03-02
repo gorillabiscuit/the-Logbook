@@ -4,10 +4,12 @@ import type { SortingState, VisibilityState } from '@tanstack/vue-table'
 
 definePageMeta({
   middleware: 'auth',
+  ssr: false,
 })
 
 const supabase = useSupabaseClient()
-const { hasRole } = useAuth()
+const toast = useToast()
+const { hasRole, profile } = useAuth()
 const { query: searchQuery, results: searchResults, totalHits, searching, isSearchMode } = useSearch()
 
 const isAdmin = computed(() => hasRole(['super_admin', 'trustee']))
@@ -18,13 +20,17 @@ const selectedPrivacy = ref<string>('all')
 const selectedType = ref<string>('all')
 const selectedStatus = ref<string>((route.query.status as string) || 'all')
 const selectedCategory = ref<string>('all')
+const selectedSource = ref<string>('all')
 const loading = ref(false)
 const documents = ref<any[]>([])
 const categories = ref<Array<{ id: string; name: string; parent_id: string | null }>>([])
 
 // Table features
 const sorting = ref<SortingState>([{ id: 'created_at', desc: true }])
-const columnVisibility = ref<VisibilityState>({})
+const columnVisibility = ref<VisibilityState>({
+  email_from: false,
+  email_subject: false,
+})
 const compact = ref(false)
 const tableRef = useTemplateRef('table')
 
@@ -56,6 +62,14 @@ const docTypeFilterOptions = [
   { label: 'Notice', value: 'notice' },
   { label: 'Email', value: 'email' },
   { label: 'Other', value: 'other' },
+]
+
+const sourceFilterOptions = [
+  { label: 'All sources', value: 'all' },
+  { label: 'Web uploads', value: 'web_upload' },
+  { label: 'All email', value: 'email_all' },
+  { label: 'Email (shared)', value: 'email_shared' },
+  { label: 'Email (private)', value: 'email_private' },
 ]
 
 const privacyColors: Record<string, 'success' | 'warning' | 'error'> = {
@@ -96,6 +110,28 @@ function isDocStuck(doc: any): boolean {
 }
 
 const retryingDocId = ref<string | null>(null)
+const deletingDocId = ref<string | null>(null)
+const deleteModalDocId = ref<string | null>(null)
+
+async function deleteDocument() {
+  const docId = deleteModalDocId.value
+  if (!docId) return
+  deletingDocId.value = docId
+  try {
+    const { data: { session } } = await supabase.auth.getSession()
+    await $fetch(`/api/documents/${docId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${session?.access_token}` },
+    })
+    deleteModalDocId.value = null
+    toast.add({ title: 'Document deleted', color: 'success' })
+    await fetchDocuments()
+  } catch (err: any) {
+    toast.add({ title: 'Delete failed', description: err.data?.message ?? err.message, color: 'error' })
+  } finally {
+    deletingDocId.value = null
+  }
+}
 
 async function retryDocument(docId: string) {
   retryingDocId.value = docId
@@ -134,12 +170,17 @@ const fetchDocuments = async () => {
 
   let query = supabase
     .from('documents')
-    .select('id, title, original_filename, privacy_level, sensitivity_tier, doc_type, doc_date, processing_status, ai_summary, created_at, retry_count')
+    .select('id, title, original_filename, privacy_level, sensitivity_tier, doc_type, doc_date, processing_status, ai_summary, created_at, retry_count, uploaded_by, source_channel, email_context')
     .order('created_at', { ascending: false })
 
   if (selectedPrivacy.value && selectedPrivacy.value !== 'all') query = query.eq('privacy_level', selectedPrivacy.value)
   if (selectedType.value && selectedType.value !== 'all') query = query.eq('doc_type', selectedType.value)
   if (selectedStatus.value && selectedStatus.value !== 'all') query = query.eq('processing_status', selectedStatus.value)
+  if (selectedSource.value === 'email_all') {
+    query = query.in('source_channel', ['email_shared', 'email_private'])
+  } else if (selectedSource.value !== 'all') {
+    query = query.eq('source_channel', selectedSource.value)
+  }
 
   // Category filter: join through document_categories
   if (selectedCategory.value && selectedCategory.value !== 'all') {
@@ -189,10 +230,24 @@ const fetchCategories = async () => {
 }
 
 onMounted(async () => {
+  // Ensure profile is loaded (plugin fires async, may not be ready yet)
+  if (!profile.value) {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (session?.user?.id) {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', session.user.id)
+        .single()
+      if (data && !error) {
+        profile.value = data as any
+      }
+    }
+  }
   await Promise.all([fetchDocuments(), fetchCategories()])
 })
 
-watch([selectedPrivacy, selectedType, selectedStatus, selectedCategory], fetchDocuments)
+watch([selectedPrivacy, selectedType, selectedStatus, selectedCategory, selectedSource], fetchDocuments)
 
 // When not in search mode, use DB filtering for the text query
 const debouncedFetch = useDebounceFn(fetchDocuments, 300)
@@ -221,6 +276,14 @@ const columns: TableColumn<any>[] = [
     accessorKey: 'title',
     header: 'Document',
     enableHiding: false, // always visible
+  },
+  {
+    accessorKey: 'email_from',
+    header: 'From',
+  },
+  {
+    accessorKey: 'email_subject',
+    header: 'Subject',
   },
   {
     accessorKey: 'privacy_level',
@@ -267,6 +330,16 @@ function toggleColumn(colId: string) {
   const col = api.getColumn(colId)
   if (col) col.toggleVisibility()
 }
+
+// Auto-toggle email columns when source filter changes
+watch(selectedSource, (source) => {
+  const isEmailFilter = source.startsWith('email')
+  columnVisibility.value = {
+    ...columnVisibility.value,
+    email_from: isEmailFilter,
+    email_subject: isEmailFilter,
+  }
+})
 
 // Dynamic table UI for compact mode
 const tableUi = computed(() => {
@@ -327,6 +400,12 @@ const displayCount = computed(() => {
           class="w-40"
         />
         <USelect
+          v-model="selectedSource"
+          :items="sourceFilterOptions"
+          value-key="value"
+          class="w-40"
+        />
+        <USelect
           v-model="selectedCategory"
           :items="categoryFilterOptions"
           value-key="value"
@@ -356,10 +435,17 @@ const displayCount = computed(() => {
           >
             <div class="flex items-start justify-between gap-3">
               <div class="min-w-0 flex-1">
-                <h3
-                  class="font-medium text-gray-900 dark:text-white truncate"
-                  v-html="hit._formatted?.title ?? hit.title"
-                />
+                <div class="flex items-center gap-1.5">
+                  <UIcon
+                    v-if="hit.source_channel?.startsWith('email_')"
+                    name="i-heroicons-envelope"
+                    class="w-4 h-4 text-gray-400 shrink-0"
+                  />
+                  <h3
+                    class="font-medium text-gray-900 dark:text-white truncate"
+                    v-html="hit._formatted?.title ?? hit.title"
+                  />
+                </div>
                 <p
                   v-if="hit._formatted?.content"
                   class="text-sm text-gray-500 dark:text-gray-400 mt-1 line-clamp-2"
@@ -459,6 +545,20 @@ const displayCount = computed(() => {
               </button>
             </template>
 
+            <template #email_from-header="{ column }">
+              <button class="flex items-center gap-1 cursor-pointer" @click="column.toggleSorting()">
+                <span>From</span>
+                <UIcon :name="sortIcon('email_from')" class="w-3.5 h-3.5 text-gray-400" />
+              </button>
+            </template>
+
+            <template #email_subject-header="{ column }">
+              <button class="flex items-center gap-1 cursor-pointer" @click="column.toggleSorting()">
+                <span>Subject</span>
+                <UIcon :name="sortIcon('email_subject')" class="w-3.5 h-3.5 text-gray-400" />
+              </button>
+            </template>
+
             <template #privacy_level-header="{ column }">
               <button class="flex items-center gap-1 cursor-pointer" @click="column.toggleSorting()">
                 <span>Privacy</span>
@@ -503,12 +603,39 @@ const displayCount = computed(() => {
 
             <!-- Cell templates -->
             <template #title-cell="{ row }">
-              <NuxtLink
-                :to="`/documents/${row.original.id}`"
-                class="font-medium text-gray-900 dark:text-white hover:text-primary-600 dark:hover:text-primary-400"
-              >
-                {{ row.original.title || row.original.original_filename || 'Untitled' }}
-              </NuxtLink>
+              <div class="flex items-center gap-2">
+                <UIcon
+                  v-if="row.original.source_channel?.startsWith('email_')"
+                  name="i-heroicons-envelope"
+                  class="w-4 h-4 text-gray-400 shrink-0"
+                />
+                <div class="min-w-0">
+                  <NuxtLink
+                    :to="`/documents/${row.original.id}`"
+                    class="font-medium text-gray-900 dark:text-white hover:text-primary-600 dark:hover:text-primary-400"
+                  >
+                    {{ row.original.title || row.original.original_filename || 'Untitled' }}
+                  </NuxtLink>
+                  <p
+                    v-if="row.original.email_context?.subject"
+                    class="text-xs text-gray-500 dark:text-gray-400 truncate"
+                  >
+                    {{ row.original.email_context.subject }}
+                  </p>
+                </div>
+              </div>
+            </template>
+
+            <template #email_from-cell="{ row }">
+              <span class="text-sm text-gray-500 dark:text-gray-400 truncate">
+                {{ row.original.email_context?.sender_name || row.original.email_context?.sender_email || '—' }}
+              </span>
+            </template>
+
+            <template #email_subject-cell="{ row }">
+              <span class="text-sm text-gray-500 dark:text-gray-400 truncate">
+                {{ row.original.email_context?.subject || '—' }}
+              </span>
             </template>
 
             <template #privacy_level-cell="{ row }">
@@ -571,6 +698,16 @@ const displayCount = computed(() => {
                   title="Retry processing"
                   @click.prevent="retryDocument(row.original.id)"
                 />
+                <UButton
+                  v-if="(isAdmin || row.original.uploaded_by === profile?.id) && (row.original.processing_status === 'failed' || isDocStuck(row.original))"
+                  icon="i-heroicons-trash"
+                  size="xs"
+                  variant="ghost"
+                  color="error"
+                  :loading="deletingDocId === row.original.id"
+                  title="Delete document"
+                  @click.prevent="deleteModalDocId = row.original.id"
+                />
               </div>
             </template>
 
@@ -581,5 +718,36 @@ const displayCount = computed(() => {
         </template>
       </UCard>
     </div>
+
+    <!-- Delete confirmation modal -->
+    <UModal :open="!!deleteModalDocId" @update:open="(v: boolean) => { if (!v) deleteModalDocId = null }">
+      <template #content>
+        <div class="p-6">
+          <div class="flex items-start gap-3 mb-4">
+            <UIcon name="i-heroicons-exclamation-triangle" class="w-6 h-6 text-red-500 mt-0.5" />
+            <div>
+              <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Delete document</h3>
+              <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                Are you sure? This will permanently delete the document and its file. This action cannot be undone.
+              </p>
+            </div>
+          </div>
+          <div class="flex justify-end gap-2">
+            <UButton
+              label="Cancel"
+              variant="outline"
+              @click="deleteModalDocId = null"
+            />
+            <UButton
+              label="Delete"
+              color="error"
+              icon="i-heroicons-trash"
+              :loading="deletingDocId === deleteModalDocId"
+              @click="deleteDocument"
+            />
+          </div>
+        </div>
+      </template>
+    </UModal>
   </div>
 </template>

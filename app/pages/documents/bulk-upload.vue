@@ -12,6 +12,13 @@ const uploading = ref(false)
 const progress = ref(0)
 const results = ref<Array<{ filename: string; status: string; id?: string }>>([])
 
+// Deduplication
+const { computeHash, checkDuplicate } = useFileHash()
+const checkingDuplicates = ref(false)
+const fileHashes = ref<Map<number, string>>(new Map())
+const duplicateFiles = ref<Map<number, { id: string; title: string; created_at: string }>>(new Map())
+const duplicatesChecked = ref(false)
+
 const privacyOptions = [
   { label: 'Shared', value: 'shared' },
   { label: 'Private', value: 'private' },
@@ -37,15 +44,53 @@ async function getAuthHeaders() {
   return { Authorization: `Bearer ${session?.access_token}` }
 }
 
-function onFilesChange(event: Event) {
+async function onFilesChange(event: Event) {
   const input = event.target as HTMLInputElement
   if (input.files) {
     files.value = Array.from(input.files)
+    fileHashes.value = new Map()
+    duplicateFiles.value = new Map()
+    duplicatesChecked.value = false
+
+    // Check all files for duplicates in parallel
+    checkingDuplicates.value = true
+    try {
+      await Promise.all(
+        files.value.map(async (file, index) => {
+          try {
+            const hash = await computeHash(file)
+            fileHashes.value.set(index, hash)
+            const result = await checkDuplicate(hash)
+            if (result.isDuplicate && result.match) {
+              duplicateFiles.value.set(index, result.match)
+            }
+          } catch {
+            // Non-critical — pipeline will catch duplicates server-side
+          }
+        })
+      )
+    } finally {
+      checkingDuplicates.value = false
+      duplicatesChecked.value = true
+    }
   }
 }
 
 function removeFile(index: number) {
   files.value.splice(index, 1)
+  // Rebuild hash/duplicate maps with shifted indices
+  const newHashes = new Map<number, string>()
+  const newDuplicates = new Map<number, { id: string; title: string; created_at: string }>()
+  for (const [i, hash] of fileHashes.value) {
+    if (i < index) { newHashes.set(i, hash) }
+    else if (i > index) { newHashes.set(i - 1, hash) }
+  }
+  for (const [i, match] of duplicateFiles.value) {
+    if (i < index) { newDuplicates.set(i, match) }
+    else if (i > index) { newDuplicates.set(i - 1, match) }
+  }
+  fileHashes.value = newHashes
+  duplicateFiles.value = newDuplicates
 }
 
 async function uploadAll() {
@@ -72,6 +117,7 @@ async function uploadAll() {
     title: string
     doc_type: string
     privacy_level: string
+    file_hash: string | null
   }> = []
 
   // Step 1: Upload all files to storage
@@ -101,6 +147,7 @@ async function uploadAll() {
         title: file.name.replace(/\.[^.]+$/, ''),
         doc_type: docType.value === 'auto' ? '' : docType.value,
         privacy_level: privacyLevel.value,
+        file_hash: fileHashes.value.get(i) || null,
       })
     } catch (err: any) {
       results.value.push({ filename: file.name, status: `error: ${err.message}` })
@@ -191,6 +238,41 @@ function formatSize(bytes: number) {
                 <span class="text-xs text-gray-400">{{ formatSize(file.size) }}</span>
               </div>
               <UButton icon="i-heroicons-x-mark" variant="ghost" size="xs" @click="removeFile(i)" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Duplicate check status -->
+        <div v-if="checkingDuplicates" class="flex items-center gap-2 text-sm text-gray-500">
+          <UIcon name="i-heroicons-arrow-path" class="w-4 h-4 animate-spin" />
+          Checking for duplicates...
+        </div>
+
+        <!-- Duplicate summary -->
+        <div
+          v-else-if="duplicatesChecked && duplicateFiles.size > 0"
+          class="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-3"
+        >
+          <div class="flex items-center gap-2 mb-2">
+            <UIcon name="i-heroicons-document-duplicate" class="w-4 h-4 text-amber-500" />
+            <span class="text-sm font-medium text-amber-800 dark:text-amber-200">
+              {{ duplicateFiles.size }} of {{ files.length }} file(s) already exist
+            </span>
+          </div>
+          <p class="text-xs text-amber-700 dark:text-amber-300 mb-2">
+            These will be linked as copies without reprocessing, saving time and API costs.
+          </p>
+          <div class="space-y-1">
+            <div
+              v-for="[index, match] in duplicateFiles"
+              :key="index"
+              class="flex items-center justify-between gap-2 text-xs"
+            >
+              <span class="text-amber-700 dark:text-amber-300 truncate">{{ files[index]?.name }}</span>
+              <div class="flex items-center gap-2 flex-shrink-0">
+                <span class="text-amber-600 dark:text-amber-400">= {{ match.title }}</span>
+                <UButton icon="i-heroicons-x-mark" variant="ghost" size="xs" @click="removeFile(index)" />
+              </div>
             </div>
           </div>
         </div>
