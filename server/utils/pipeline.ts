@@ -268,6 +268,12 @@ export async function processDocument(documentId: string): Promise<void> {
       }
     }
 
+    // When auto_classify_privacy is set, let AI override privacy level
+    if (doc.auto_classify_privacy && result.suggestedPrivacyLevel) {
+      updatePayload.privacy_level = result.suggestedPrivacyLevel
+      updatePayload.ai_privacy_reason = result.privacyReason
+    }
+
     await supabase
       .from('documents')
       .update(updatePayload)
@@ -296,12 +302,12 @@ export async function processDocument(documentId: string): Promise<void> {
 
     // Always run heavy scrub
     await updateStageProgress(documentId, 'pii_scrub', 20, 'Running heavy PII scrub...')
-    const heavyScrubbed = await scrubPII(extractedText, 'heavy')
+    const heavyScrubbed = await scrubPII(extractedText, 'heavy', documentId)
 
     if (sensitivityTier === 'scheme_ops') {
       // Scheme ops: run both light and heavy
       await updateStageProgress(documentId, 'pii_scrub', 60, 'Running light PII scrub...')
-      const lightScrubbed = await scrubPII(extractedText, 'light')
+      const lightScrubbed = await scrubPII(extractedText, 'light', documentId)
       await updateStageProgress(documentId, 'pii_scrub', 90, 'Saving scrubbed text...')
       await supabase
         .from('documents')
@@ -349,7 +355,7 @@ export async function processDocument(documentId: string): Promise<void> {
       const progressPct = 20 + Math.round((batchNum / totalBatches) * 60)
       await updateStageProgress(documentId, 'embedding', progressPct, `Generating embeddings (batch ${batchNum} of ${totalBatches})...`)
       const batch = chunks.slice(i, i + batchSize)
-      const batchEmbeddings = await generateEmbeddings(batch.map(c => c.content))
+      const batchEmbeddings = await generateEmbeddings(batch.map(c => c.content), documentId)
       allEmbeddings.push(...batchEmbeddings)
     }
 

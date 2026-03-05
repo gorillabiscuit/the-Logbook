@@ -87,7 +87,7 @@ export default defineEventHandler(async (event) => {
     .slice(0, -1) // Remove the last entry (the question we just inserted)
 
   // Run RAG query
-  const ragResult = await ragQuery(message, profile.role, conversationHistory)
+  const ragResult = await ragQuery(message, profile.role, conversationHistory, user.id)
 
   // Build source_chunks metadata
   const sourceChunks = ragResult.sources.map(s => ({

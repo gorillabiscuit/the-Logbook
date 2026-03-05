@@ -25,7 +25,7 @@ export default defineNuxtConfig({
   },
 
   runtimeConfig: {
-    supabaseServiceRoleKey: '',
+    supabaseServiceRoleKey: process.env.SUPABASE_SECRET_KEY || '',
     anthropicApiKey: '',
     embeddingApiKey: '',
     meilisearchApiKey: '',

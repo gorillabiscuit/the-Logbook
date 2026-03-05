@@ -25,7 +25,7 @@ const MAX_BATCH_SIZE = 128 // Voyage AI limit per request
  * Handles batching automatically for large input arrays.
  * Returns embeddings in the same order as input.
  */
-export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
+export async function generateEmbeddings(texts: string[], documentId?: string): Promise<number[][]> {
   if (texts.length === 0) return []
 
   const client = getVoyageClient()
@@ -42,6 +42,17 @@ export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
 
     if (response.data) {
       allEmbeddings.push(...response.data.map(d => d.embedding as number[]))
+    }
+
+    if (response.usage?.totalTokens) {
+      logUsage({
+        service: 'voyage',
+        model: EMBEDDING_MODEL,
+        operation: 'embedding',
+        input_tokens: response.usage.totalTokens,
+        output_tokens: 0,
+        document_id: documentId,
+      })
     }
   }
 
@@ -63,6 +74,16 @@ export async function generateQueryEmbedding(query: string): Promise<number[]> {
 
   if (!response.data?.[0]?.embedding) {
     throw new Error('Failed to generate query embedding')
+  }
+
+  if (response.usage?.totalTokens) {
+    logUsage({
+      service: 'voyage',
+      model: EMBEDDING_MODEL,
+      operation: 'query_embedding',
+      input_tokens: response.usage.totalTokens,
+      output_tokens: 0,
+    })
   }
 
   return response.data[0].embedding as number[]

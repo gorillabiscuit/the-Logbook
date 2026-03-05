@@ -1,0 +1,49 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd \"/Users/wouterschreuders/Code/the Logbook\" && pnpm dlx nuxi@latest init . --force --no-install 2>&1)",
+      "Bash(true:*)",
+      "Bash(cd \"/Users/wouterschreuders/Code/the Logbook\" && pnpm add @nuxt/ui @nuxtjs/supabase zod @vueuse/nuxt 2>&1)",
+      "WebFetch(domain:ui.nuxt.com)",
+      "Bash(claude mcp:*)",
+      "Bash(npx:*)",
+      "Bash(curl:*)",
+      "Bash(PGPASSWORD=\"0Chs9WPjr4Ngxxyf\" psql:*)",
+      "Bash(echo Trying $region...:*)",
+      "WebSearch",
+      "Bash(pnpm dev:*)",
+      "Bash(open:*)",
+      "Bash(pnpm add:*)",
+      "Bash(pnpm build:*)",
+      "WebFetch(domain:supabase.com)",
+      "WebFetch(domain:platform.openai.com)",
+      "WebFetch(domain:www.meilisearch.com)",
+      "WebFetch(domain:docs.unstructured.io)",
+      "WebFetch(domain:www.chaterimo.com)",
+      "WebFetch(domain:openai.com)",
+      "WebFetch(domain:unstructured.io)",
+      "WebFetch(domain:costgoat.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:help.openai.com)",
+      "WebFetch(domain:www.helicone.ai)",
+      "WebFetch(domain:elephas.app)",
+      "WebFetch(domain:railway.com)",
+      "Bash(git:*)",
+      "WebFetch(domain:docs.voyageai.com)",
+      "WebFetch(domain:www.npmjs.com)",
+      "Bash(pnpm:*)",
+      "Bash(node:*)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(d.get\\(''error_description'', d.get\\(''access_token'', ''unknown''\\)\\)\\)\")",
+      "Bash(SERVICE_KEY=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRrY29od3l4dGJkbHB2aHp1cXJ5Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MjIwMzE3NywiZXhwIjoyMDg3Nzc5MTc3fQ.BWolJBFp-8ug_gNoJcMfpfWpSsDmvquCWgx5Y6p-wo4\")",
+      "Bash(ANON_KEY=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRrY29od3l4dGJkbHB2aHp1cXJ5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIyMDMxNzcsImV4cCI6MjA4Nzc3OTE3N30.hNrZpMd3x7CNbNbFokNh3ht-Z7qQ9EjepF52iVvKsRQ\")",
+      "Bash(__NEW_LINE_bbffc152f54b5ed2__ curl -s -X POST \"https://dkcohwyxtbdlpvhzuqry.supabase.co/auth/v1/admin/users\" -H \"apikey: $ANON_KEY\" -H \"Authorization: Bearer $SERVICE_KEY\" -H \"Content-Type: application/json\" --data-raw '{\"\"email\"\":\"\"test-smoke@logbook.test\"\",\"\"password\"\":\"\"SmokeTest2026x\"\",\"\"email_confirm\"\":true,\"\"user_metadata\"\":{\"\"full_name\"\":\"\"Smoke Test User\"\"}}')",
+      "Bash(python3 -c \":*)",
+      "Bash(python3 -m json.tool)",
+      "Bash(# Check if dev server is running and what process it is lsof -i :3000 -t)"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "supabase"
+  ]
+}

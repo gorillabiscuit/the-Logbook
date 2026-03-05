@@ -383,6 +383,33 @@ const tierOverrideOptions = [
   { label: 'Privileged Legal', value: 'privileged_legal' },
 ]
 
+const privacyOverrideOptions = [
+  { label: 'Shared', value: 'shared' },
+  { label: 'Private', value: 'private' },
+  { label: 'Privileged', value: 'privileged' },
+]
+
+const privacyLabels: Record<string, string> = {
+  shared: 'Shared',
+  private: 'Private',
+  privileged: 'Privileged',
+}
+
+const overridePrivacy = async (newLevel: string) => {
+  try {
+    const { error } = await supabase
+      .from('documents')
+      .update({ privacy_level: newLevel })
+      .eq('id', documentId)
+
+    if (error) throw error
+    doc.value.privacy_level = newLevel
+    toast.add({ title: `Privacy level updated to "${privacyLabels[newLevel]}"`, color: 'success' })
+  } catch (err: any) {
+    toast.add({ title: 'Failed to update privacy level', description: err.message, color: 'error' })
+  }
+}
+
 const overrideTier = async (newTier: string) => {
   try {
     const { error } = await supabase
@@ -508,9 +535,23 @@ onUnmounted(stopPolling)
         <div class="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
           <div>
             <span class="text-gray-500 dark:text-gray-400 block mb-1">Privacy</span>
-            <UBadge :color="privacyColors[doc.privacy_level]" variant="soft">
-              {{ doc.privacy_level }}
-            </UBadge>
+            <div class="flex items-center gap-2">
+              <UBadge :color="privacyColors[doc.privacy_level]" variant="soft">
+                {{ doc.privacy_level }}
+              </UBadge>
+              <USelect
+                v-if="isAdmin"
+                :model-value="doc.privacy_level"
+                :items="privacyOverrideOptions"
+                value-key="value"
+                size="xs"
+                class="w-32"
+                @update:model-value="overridePrivacy"
+              />
+            </div>
+            <p v-if="doc.ai_privacy_reason" class="text-xs text-gray-400 dark:text-gray-500 mt-1 italic">
+              {{ doc.ai_privacy_reason }}
+            </p>
           </div>
           <div>
             <span class="text-gray-500 dark:text-gray-400 block mb-1">Sensitivity</span>

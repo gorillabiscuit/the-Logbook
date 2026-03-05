@@ -58,7 +58,8 @@ function getPrivacyFilter(role: string): string[] {
 export async function ragQuery(
   question: string,
   role: string,
-  conversationHistory: Array<{ role: string; content: string }> = []
+  conversationHistory: Array<{ role: string; content: string }> = [],
+  userId?: string
 ): Promise<RAGResponse> {
   const supabase = useSupabaseAdmin()
 
@@ -152,6 +153,15 @@ RULES:
     max_tokens: 4096,
     system: systemPrompt,
     messages,
+  })
+
+  logUsage({
+    service: 'anthropic',
+    model: 'claude-sonnet-4-6',
+    operation: 'chat',
+    input_tokens: response.usage.input_tokens,
+    output_tokens: response.usage.output_tokens,
+    user_id: userId,
   })
 
   const content = response.content[0]

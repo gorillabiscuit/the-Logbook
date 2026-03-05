@@ -11,6 +11,7 @@ const toast = useToast()
 const router = useRouter()
 
 const autoAnalyze = ref(true)
+const autoClassifyPrivacy = ref(false)
 
 const schemaManual = z.object({
   title: z.string().min(1, 'Title is required'),
@@ -28,7 +29,20 @@ const schemaAuto = z.object({
   category_ids: z.array(z.string()).optional(),
 })
 
-const activeSchema = computed(() => autoAnalyze.value ? schemaAuto : schemaManual)
+const activeSchema = computed(() => {
+  if (autoAnalyze.value) return schemaAuto
+  // Multi-file manual: title is not required (each file uses its filename)
+  if (selectedFiles.value.length > 1) {
+    return z.object({
+      title: z.string().optional(),
+      doc_type: z.string().min(1, 'Document type is required'),
+      doc_date: z.string().optional(),
+      privacy_level: z.enum(['shared', 'private', 'privileged']),
+      category_ids: z.array(z.string()).optional(),
+    })
+  }
+  return schemaManual
+})
 
 const state = reactive({
   title: '',
@@ -38,8 +52,9 @@ const state = reactive({
   category_ids: [] as string[],
 })
 
-const selectedFile = ref<File | null>(null)
+const selectedFiles = ref<File[]>([])
 const uploading = ref(false)
+const uploadProgress = ref(0) // tracks how many files have been uploaded so far
 const categories = ref<Array<{ id: string; name: string; parent_id: string | null }>>([])
 
 // Deduplication
@@ -107,44 +122,124 @@ const categoryOptions = computed(() => {
 
 const dragging = ref(false)
 
-async function handleFile(file: File) {
-  selectedFile.value = file
-  if (!state.title) {
-    state.title = file.name.replace(/\.[^.]+$/, '')
+function addFiles(files: File[]) {
+  // Deduplicate by name+size against already-selected files
+  const existing = new Set(selectedFiles.value.map(f => `${f.name}:${f.size}`))
+  const newFiles = files.filter(f => !existing.has(`${f.name}:${f.size}`))
+  selectedFiles.value = [...selectedFiles.value, ...newFiles]
+
+  // Auto-fill title only when exactly one file is selected
+  if (selectedFiles.value.length === 1 && !state.title) {
+    state.title = selectedFiles.value[0].name.replace(/\.[^.]+$/, '')
   }
 
-  fileHash.value = null
-  duplicateMatch.value = null
-  try {
-    const hash = await computeHash(file)
-    fileHash.value = hash
-    const result = await checkDuplicate(hash)
-    if (result.isDuplicate && result.match) {
-      duplicateMatch.value = result.match
-      duplicateModalOpen.value = true
-    }
-  } catch {
-    // Non-critical — upload will still work, pipeline catches duplicates server-side
+  // Run duplicate check for single-file selection
+  if (selectedFiles.value.length === 1) {
+    const file = selectedFiles.value[0]
+    fileHash.value = null
+    duplicateMatch.value = null
+    computeHash(file).then(async (hash) => {
+      fileHash.value = hash
+      const result = await checkDuplicate(hash)
+      if (result.isDuplicate && result.match) {
+        duplicateMatch.value = result.match
+        duplicateModalOpen.value = true
+      }
+    }).catch(() => {
+      // Non-critical — pipeline catches duplicates server-side
+    })
   }
 }
 
-const onFileChange = async (event: Event) => {
+function removeFile(index: number) {
+  selectedFiles.value = selectedFiles.value.filter((_, i) => i !== index)
+  if (selectedFiles.value.length === 0) {
+    fileHash.value = null
+    duplicateMatch.value = null
+  }
+}
+
+const onFileChange = (event: Event) => {
   const input = event.target as HTMLInputElement
-  if (input.files?.[0]) {
-    await handleFile(input.files[0])
+  if (input.files?.length) {
+    addFiles(Array.from(input.files))
+    input.value = '' // reset so the same files can be re-selected
   }
 }
 
-const onDrop = async (event: DragEvent) => {
+const onDrop = (event: DragEvent) => {
   dragging.value = false
-  const file = event.dataTransfer?.files?.[0]
-  if (file) {
-    await handleFile(file)
+  const files = event.dataTransfer?.files
+  if (files?.length) {
+    addFiles(Array.from(files))
   }
+}
+
+async function uploadSingleFile(file: File, sessionUser: { id: string }) {
+  const ext = file.name.split('.').pop()
+  const storagePath = `${sessionUser.id}/${Date.now()}-${Math.random().toString(36).slice(2, 6)}.${ext}`
+
+  // Upload to Supabase Storage
+  const { error: storageError } = await supabase.storage
+    .from('documents')
+    .upload(storagePath, file, {
+      contentType: file.type,
+      upsert: false,
+    })
+
+  if (storageError) throw storageError
+
+  // For single file, use the form title; for multi, derive from filename
+  const title = selectedFiles.value.length === 1 && state.title
+    ? state.title
+    : file.name.replace(/\.[^.]+$/, '')
+
+  // Insert document record
+  const { data: doc, error: dbError } = await supabase
+    .from('documents')
+    .insert({
+      uploaded_by: sessionUser.id,
+      title,
+      original_filename: file.name,
+      file_url: storagePath,
+      file_size_bytes: file.size,
+      mime_type: file.type,
+      privacy_level: state.privacy_level,
+      doc_type: state.doc_type || null,
+      doc_date: state.doc_date || null,
+      source_channel: 'web_upload',
+      processing_status: 'pending',
+      file_hash: selectedFiles.value.length === 1 ? fileHash.value || null : null,
+      auto_analyze: autoAnalyze.value,
+      auto_classify_privacy: autoClassifyPrivacy.value,
+    })
+    .select('id')
+    .single()
+
+  if (dbError) throw dbError
+
+  // Link categories
+  if (state.category_ids?.length && doc) {
+    await supabase.from('document_categories').insert(
+      state.category_ids.map(catId => ({
+        document_id: doc.id,
+        category_id: catId,
+      }))
+    )
+  }
+
+  // Trigger document processing pipeline (fire-and-forget)
+  if (doc) {
+    $fetch(`/api/documents/${doc.id}/process`, { method: 'POST' }).catch(() => {
+      // Processing failure is non-blocking — user can retry from detail page
+    })
+  }
+
+  return doc
 }
 
 const upload = async () => {
-  if (!selectedFile.value) {
+  if (!selectedFiles.value.length) {
     toast.add({ title: 'Please select a file', color: 'warning' })
     return
   }
@@ -157,74 +252,58 @@ const upload = async () => {
   }
 
   uploading.value = true
+  uploadProgress.value = 0
+
+  const files = selectedFiles.value
+  const failed: string[] = []
+  let lastDocId: string | null = null
 
   try {
-    const file = selectedFile.value
-    const ext = file.name.split('.').pop()
-    const storagePath = `${sessionUser.id}/${Date.now()}.${ext}`
-
-    // Upload to Supabase Storage
-    const { error: storageError } = await supabase.storage
-      .from('documents')
-      .upload(storagePath, file, {
-        contentType: file.type,
-        upsert: false,
-      })
-
-    if (storageError) throw storageError
-
-    // Insert document record
-    const { data: doc, error: dbError } = await supabase
-      .from('documents')
-      .insert({
-        uploaded_by: sessionUser.id,
-        title: state.title || file.name.replace(/\.[^.]+$/, ''),
-        original_filename: file.name,
-        file_url: storagePath,
-        file_size_bytes: file.size,
-        mime_type: file.type,
-        privacy_level: state.privacy_level,
-        doc_type: state.doc_type || null,
-        doc_date: state.doc_date || null,
-        source_channel: 'web_upload',
-        processing_status: 'pending',
-        file_hash: fileHash.value || null,
-        auto_analyze: autoAnalyze.value,
-      })
-      .select('id')
-      .single()
-
-    if (dbError) throw dbError
-
-    // Link categories
-    if (state.category_ids?.length && doc) {
-      await supabase.from('document_categories').insert(
-        state.category_ids.map(catId => ({
-          document_id: doc.id,
-          category_id: catId,
-        }))
-      )
+    for (const file of files) {
+      try {
+        const doc = await uploadSingleFile(file, sessionUser)
+        if (doc) lastDocId = doc.id
+      } catch (err: any) {
+        failed.push(file.name)
+      }
+      uploadProgress.value++
     }
 
-    // Trigger document processing pipeline (fire-and-forget)
-    if (doc) {
-      $fetch(`/api/documents/${doc.id}/process`, { method: 'POST' }).catch(() => {
-        // Processing failure is non-blocking — user can retry from detail page
+    if (failed.length === files.length) {
+      toast.add({ title: 'All uploads failed', color: 'error' })
+    } else if (failed.length > 0) {
+      toast.add({
+        title: `${files.length - failed.length} of ${files.length} uploaded`,
+        description: `Failed: ${failed.join(', ')}`,
+        color: 'warning',
+      })
+    } else if (files.length === 1) {
+      toast.add({
+        title: 'Document uploaded',
+        description: autoAnalyze.value
+          ? 'AI is analysing, categorising, and naming your document.'
+          : 'Processing has started automatically.',
+        color: 'success',
+      })
+    } else {
+      toast.add({
+        title: `${files.length} documents uploaded`,
+        description: autoAnalyze.value
+          ? 'AI is analysing, categorising, and naming your documents.'
+          : 'Processing has started automatically.',
+        color: 'success',
       })
     }
 
-    toast.add({
-      title: 'Document uploaded',
-      description: autoAnalyze.value
-        ? 'AI is analysing, categorising, and naming your document.'
-        : 'Processing has started automatically.',
-      color: 'success',
-    })
-    await router.push(`/documents/${doc.id}`)
-  } catch (err: any) {
-    toast.add({ title: 'Upload failed', description: err.message, color: 'error' })
+    // Navigate: single file → detail page, multiple → list
+    if (files.length === 1 && lastDocId) {
+      await router.push(`/documents/${lastDocId}`)
+    } else {
+      await router.push('/documents')
+    }
   } finally {
     uploading.value = false
+    uploadProgress.value = 0
   }
 }
 </script>
@@ -274,15 +353,18 @@ const upload = async () => {
               ref="fileInput"
               type="file"
               class="hidden"
+              multiple
               accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif,.txt,.eml,.msg"
               @click.stop
               @change="onFileChange"
             />
-            <template v-if="selectedFile">
+            <template v-if="selectedFiles.length">
               <UIcon name="i-heroicons-document-check" class="w-8 h-8 text-primary-500 mx-auto mb-2" />
-              <p class="text-sm font-medium text-gray-900 dark:text-white">{{ selectedFile.name }}</p>
-              <p class="text-xs text-gray-500 mt-0.5">{{ (selectedFile.size / 1024).toFixed(1) }} KB</p>
+              <p v-if="selectedFiles.length === 1" class="text-sm font-medium text-gray-900 dark:text-white">{{ selectedFiles[0].name }}</p>
+              <p v-else class="text-sm font-medium text-gray-900 dark:text-white">{{ selectedFiles.length }} files selected</p>
+              <p v-if="selectedFiles.length === 1" class="text-xs text-gray-500 mt-0.5">{{ (selectedFiles[0].size / 1024).toFixed(1) }} KB</p>
               <p v-if="hashComputing" class="text-xs text-gray-400 mt-1">Checking for duplicates...</p>
+              <p class="text-xs text-primary-500 mt-1">Drop or click to add more files</p>
             </template>
             <template v-else>
               <UIcon name="i-heroicons-arrow-up-tray" class="w-8 h-8 mx-auto mb-2" :class="dragging ? 'text-primary-500' : 'text-gray-400'" />
@@ -293,6 +375,28 @@ const upload = async () => {
             </template>
           </div>
         </UFormField>
+
+        <!-- File list (when multiple files selected) -->
+        <div v-if="selectedFiles.length > 1" class="space-y-1">
+          <div
+            v-for="(file, idx) in selectedFiles"
+            :key="`${file.name}-${file.size}`"
+            class="flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg bg-gray-50 dark:bg-gray-800/50"
+          >
+            <div class="flex items-center gap-2 min-w-0">
+              <UIcon name="i-heroicons-document-text" class="w-4 h-4 text-gray-400 shrink-0" />
+              <span class="text-sm text-gray-700 dark:text-gray-300 truncate">{{ file.name }}</span>
+              <span class="text-xs text-gray-400 shrink-0">{{ (file.size / 1024).toFixed(0) }} KB</span>
+            </div>
+            <UButton
+              icon="i-heroicons-x-mark"
+              size="xs"
+              variant="ghost"
+              color="error"
+              @click="removeFile(idx)"
+            />
+          </div>
+        </div>
 
         <!-- Auto-analyse toggle -->
         <label class="flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors"
@@ -311,8 +415,8 @@ const upload = async () => {
 
         <!-- Manual metadata fields (collapsed when auto-analyse is on) -->
         <template v-if="!autoAnalyze">
-          <!-- Title -->
-          <UFormField label="Title" name="title" required>
+          <!-- Title (only for single file) -->
+          <UFormField v-if="selectedFiles.length <= 1" label="Title" name="title" required>
             <UInput v-model="state.title" placeholder="Document title" class="w-full" />
           </UFormField>
 
@@ -334,14 +438,32 @@ const upload = async () => {
         </template>
 
         <template v-else>
-          <!-- Minimal fields when auto-analyse is on -->
-          <UFormField label="Title (optional — AI will generate one)" name="title">
+          <!-- Minimal fields when auto-analyse is on (title only for single file) -->
+          <UFormField v-if="selectedFiles.length <= 1" label="Title (optional — AI will generate one)" name="title">
             <UInput v-model="state.title" placeholder="Leave blank for AI-generated title" class="w-full" />
           </UFormField>
+          <p v-if="selectedFiles.length > 1" class="text-xs text-gray-500 dark:text-gray-400">
+            Each file will be uploaded as a separate document. AI will generate titles from file contents.
+          </p>
         </template>
 
-        <!-- Privacy level -->
-        <UFormField label="Privacy level" name="privacy_level" required>
+        <!-- AI privacy classification toggle -->
+        <label class="flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors"
+          :class="autoClassifyPrivacy
+            ? 'border-primary-500 bg-primary-50 dark:bg-primary-950 dark:border-primary-700'
+            : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'"
+        >
+          <input type="checkbox" v-model="autoClassifyPrivacy" class="mt-0.5 text-primary-600 rounded" />
+          <div>
+            <div class="text-sm font-medium text-gray-900 dark:text-white">Let AI classify privacy level</div>
+            <div class="text-xs text-gray-500 dark:text-gray-400">
+              AI will classify this document's privacy level after analysing its contents based on POPIA guidelines.
+            </div>
+          </div>
+        </label>
+
+        <!-- Privacy level (manual selection, hidden when AI classifies) -->
+        <UFormField v-if="!autoClassifyPrivacy" label="Privacy level" name="privacy_level" required>
           <div class="space-y-2">
             <label
               v-for="option in privacyOptions"
@@ -364,6 +486,11 @@ const upload = async () => {
             </label>
           </div>
         </UFormField>
+
+        <!-- Note when AI classifies privacy -->
+        <div v-if="autoClassifyPrivacy" class="text-xs text-gray-500 dark:text-gray-400 px-1">
+          Document will be uploaded as "shared" initially. AI will reclassify the privacy level after analysing the content.
+        </div>
 
         <!-- Categories (hidden when auto-analyse is on) -->
         <UFormField v-if="!autoAnalyze" label="Categories" name="category_ids">
@@ -390,7 +517,11 @@ const upload = async () => {
           <UButton label="Cancel" variant="ghost" to="/documents" />
           <UButton
             type="submit"
-            label="Upload document"
+            :label="uploading && selectedFiles.length > 1
+              ? `Uploading ${uploadProgress} / ${selectedFiles.length}...`
+              : selectedFiles.length > 1
+                ? `Upload ${selectedFiles.length} documents`
+                : 'Upload document'"
             icon="i-heroicons-arrow-up-tray"
             :loading="uploading"
           />
@@ -417,7 +548,7 @@ const upload = async () => {
             <UButton
               label="Cancel"
               variant="outline"
-              @click="duplicateModalOpen = false; selectedFile = null; fileHash = null; duplicateMatch = null"
+              @click="duplicateModalOpen = false; selectedFiles = []; fileHash = null; duplicateMatch = null"
             />
             <UButton
               label="View existing"

@@ -84,6 +84,14 @@ Trivial: "see attached", "please find attached", "FYI", forwarding boilerplate, 
       ],
     })
 
+    logUsage({
+      service: 'anthropic',
+      model: 'claude-haiku-4-5-20251001',
+      operation: 'email_triage',
+      input_tokens: message.usage.input_tokens,
+      output_tokens: message.usage.output_tokens,
+    })
+
     const content = message.content[0]
     if (content?.type === 'text') {
       const jsonMatch = content.text.match(/\{[\s\S]*\}/)

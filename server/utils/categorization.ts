@@ -26,6 +26,8 @@ interface CategorizationResult {
   sensitivityTier: SensitivityTier
   suggestedTitle: string | null
   suggestedDocType: string | null
+  suggestedPrivacyLevel: 'shared' | 'private' | 'privileged' | null
+  privacyReason: string | null
 }
 
 /**
@@ -45,7 +47,7 @@ export async function categorizeDocument(
     .order('name')
 
   if (!categories || categories.length === 0) {
-    return { categories: [], summary: '', confidence: 0, extractedDate: null, sensitivityTier: 'scheme_ops', suggestedTitle: null, suggestedDocType: null }
+    return { categories: [], summary: '', confidence: 0, extractedDate: null, sensitivityTier: 'scheme_ops', suggestedTitle: null, suggestedDocType: null, suggestedPrivacyLevel: null, privacyReason: null }
   }
 
   // Build category tree string for the prompt
@@ -77,8 +79,16 @@ You must respond with ONLY a JSON object (no markdown, no explanation) matching 
   "overallConfidence": <0.0-1.0>,
   "extractedDate": "<YYYY-MM-DD or null>",
   "suggestedTitle": "<descriptive document title>",
-  "suggestedDocType": "<one of: letter, contract, minutes, invoice, financial_statement, legal_opinion, photo, notice, email, other>"
+  "suggestedDocType": "<one of: letter, contract, minutes, invoice, financial_statement, legal_opinion, photo, notice, email, other>",
+  "suggestedPrivacyLevel": "<shared | private | privileged>",
+  "privacyReason": "<1 sentence explaining why this privacy level was chosen>"
 }
+
+Privacy classification (South African POPIA Act):
+- "shared": General building info safe for all residents — AGM minutes, maintenance notices, financial statements, general complaints, building rules, contractor info, common property photos.
+- "private": Contains personal information of identifiable persons — individual levy accounts, personal correspondence, unit-specific financial details, individual complaints naming residents, employment/HR details, personal contact information beyond what's publicly known.
+- "privileged": Legal strategy, legal opinions, attorney-client communications, litigation preparation, or documents explicitly marked as privileged/confidential by the body corporate's lawyer.
+Default to "shared" when uncertain. Err toward "private" when personal data of identifiable natural persons appears (POPIA s1 definition of personal information). Only use "privileged" for genuine legal professional privilege.
 
 Rules:
 - Select 1-3 most relevant categories from the tree below
@@ -99,6 +109,15 @@ ${categoryTree}`,
     ],
   })
 
+  logUsage({
+    service: 'anthropic',
+    model: 'claude-sonnet-4-6',
+    operation: 'categorization',
+    input_tokens: message.usage.input_tokens,
+    output_tokens: message.usage.output_tokens,
+    document_id: documentId,
+  })
+
   const content = message.content[0]
   if (content.type !== 'text') throw new Error('Unexpected response type from Claude')
 
@@ -114,7 +133,7 @@ ${categoryTree}`,
     parsed = JSON.parse(jsonMatch[0])
   } catch (parseError) {
     console.error('Failed to parse categorization response:', content.text, parseError)
-    return { categories: [], summary: '', confidence: 0, extractedDate: null, sensitivityTier: 'scheme_ops', suggestedTitle: null, suggestedDocType: null }
+    return { categories: [], summary: '', confidence: 0, extractedDate: null, sensitivityTier: 'scheme_ops', suggestedTitle: null, suggestedDocType: null, suggestedPrivacyLevel: null, privacyReason: null }
   }
 
   // Insert category links
@@ -173,6 +192,11 @@ ${categoryTree}`,
     .update({ sensitivity_tier: sensitivityTier })
     .eq('id', documentId)
 
+  // Validate privacy level
+  const validPrivacyLevels = ['shared', 'private', 'privileged'] as const
+  const rawPrivacy = parsed.suggestedPrivacyLevel
+  const suggestedPrivacyLevel = validPrivacyLevels.includes(rawPrivacy) ? rawPrivacy as typeof validPrivacyLevels[number] : null
+
   return {
     categories: categoryResults,
     summary: parsed.summary ?? '',
@@ -181,5 +205,7 @@ ${categoryTree}`,
     sensitivityTier,
     suggestedTitle: parsed.suggestedTitle ?? null,
     suggestedDocType: parsed.suggestedDocType ?? null,
+    suggestedPrivacyLevel,
+    privacyReason: typeof parsed.privacyReason === 'string' ? parsed.privacyReason : null,
   }
 }

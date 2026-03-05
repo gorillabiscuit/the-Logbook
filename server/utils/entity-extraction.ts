@@ -99,6 +99,15 @@ Rules:
     ],
   })
 
+  logUsage({
+    service: 'anthropic',
+    model: 'claude-sonnet-4-6',
+    operation: 'entity_extraction',
+    input_tokens: message.usage.input_tokens,
+    output_tokens: message.usage.output_tokens,
+    document_id: documentId,
+  })
+
   const content = message.content[0]
   if (content.type !== 'text') throw new Error('Unexpected response type from Claude')
 

@@ -16,6 +16,7 @@ const submit = async () => {
   const { error: authError } = await supabase.auth.signInWithOtp({
     email: email.value,
     options: {
+      shouldCreateUser: false,
       emailRedirectTo: `${window.location.origin}/confirm`,
     },
   })
@@ -23,7 +24,12 @@ const submit = async () => {
   loading.value = false
 
   if (authError) {
-    error.value = authError.message
+    // When signups are disabled or user doesn't exist
+    if (authError.message.includes('Signups not allowed') || authError.message.includes('not allowed') || authError.status === 403) {
+      error.value = 'This email isn\'t registered yet. Contact your building admin or use an invite link.'
+    } else {
+      error.value = authError.message
+    }
     return
   }
 

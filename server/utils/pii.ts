@@ -93,7 +93,7 @@ RULES:
  * @param text - The raw document text
  * @param level - 'light' preserves names/amounts, 'heavy' redacts everything personal
  */
-export async function scrubPII(text: string, level: 'light' | 'heavy' = 'heavy'): Promise<string> {
+export async function scrubPII(text: string, level: 'light' | 'heavy' = 'heavy', documentId?: string): Promise<string> {
   if (!text || text.trim().length === 0) return text
 
   const client = getAnthropicClient()
@@ -102,7 +102,7 @@ export async function scrubPII(text: string, level: 'light' | 'heavy' = 'heavy')
   // For very long documents, process in segments to stay within token limits
   const maxChars = 15000
   if (text.length > maxChars) {
-    return await scrubLongText(client, text, maxChars, systemPrompt)
+    return await scrubLongText(client, text, maxChars, systemPrompt, documentId)
   }
 
   const message = await client.messages.create({
@@ -115,6 +115,15 @@ export async function scrubPII(text: string, level: 'light' | 'heavy' = 'heavy')
         content: `Redact PII from the following document text:\n\n${text}`,
       },
     ],
+  })
+
+  logUsage({
+    service: 'anthropic',
+    model: 'claude-sonnet-4-6',
+    operation: 'pii_scrub',
+    input_tokens: message.usage.input_tokens,
+    output_tokens: message.usage.output_tokens,
+    document_id: documentId,
   })
 
   const content = message.content[0]
@@ -131,7 +140,8 @@ async function scrubLongText(
   client: Anthropic,
   text: string,
   segmentSize: number,
-  systemPrompt: string
+  systemPrompt: string,
+  documentId?: string
 ): Promise<string> {
   const overlap = 200
   const segments: string[] = []
@@ -157,6 +167,15 @@ async function scrubLongText(
           content: `Redact PII from the following document text (segment ${i + 1} of ${segments.length}):\n\n${segments[i]}`,
         },
       ],
+    })
+
+    logUsage({
+      service: 'anthropic',
+      model: 'claude-sonnet-4-6',
+      operation: 'pii_scrub',
+      input_tokens: message.usage.input_tokens,
+      output_tokens: message.usage.output_tokens,
+      document_id: documentId,
     })
 
     const content = message.content[0]

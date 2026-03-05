@@ -21,9 +21,11 @@ const navLinks = computed(() => {
 
 const adminLinks = [
   { label: 'Users', icon: 'i-heroicons-users', to: '/admin/users' },
+  { label: 'Invites', icon: 'i-heroicons-envelope-open', to: '/admin/invites' },
   { label: 'Categories', icon: 'i-heroicons-tag', to: '/admin/categories' },
   { label: 'Flagged', icon: 'i-heroicons-flag', to: '/admin/flagged' },
   { label: 'Entities', icon: 'i-heroicons-share', to: '/admin/entities' },
+  { label: 'Usage', icon: 'i-heroicons-chart-bar', to: '/admin/usage' },
 ]
 
 const isAdmin = computed(() =>
