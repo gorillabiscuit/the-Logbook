@@ -7,8 +7,13 @@ definePageMeta({
 
 const supabase = useSupabaseClient()
 const user = useSupabaseUser()
+const { profile, fetchProfile } = useProfile()
 const toast = useToast()
 const router = useRouter()
+
+const showTrusteeOpsGuardrail = computed(() =>
+  ['super_admin', 'trustee'].includes(profile.value?.role ?? ''),
+)
 
 const autoAnalyze = ref(true)
 const autoClassifyPrivacy = ref(false)
@@ -96,6 +101,7 @@ const privacyOptions = [
 
 // Fetch top-level categories for selection
 onMounted(async () => {
+  await fetchProfile()
   const { data } = await supabase
     .from('categories')
     .select('id, name, parent_id')
@@ -324,6 +330,15 @@ const upload = async () => {
         Upload a document to the collective knowledge base.
       </p>
     </div>
+
+    <UAlert
+      v-if="showTrusteeOpsGuardrail"
+      color="info"
+      variant="soft"
+      class="mb-4"
+      title="Operational material and building managers"
+      description="Building managers only see documents with privacy Shared (plus their own uploads). For plans, parking, security, and day-to-day ops they need in the Logbook, use Shared and categories that map to scheme-level sensitivity (e.g. Maintenance, Building Operations) so search, chat, and downloads behave correctly. Private keeps content trustee/lawyer-only."
+    />
 
     <UCard>
       <UForm :schema="activeSchema" :state="state" @submit="upload" class="space-y-5">

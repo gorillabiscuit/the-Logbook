@@ -11,12 +11,14 @@
     "deploy:check": "bash scripts/deploy.sh check",
     "deploy:db": "bash scripts/deploy.sh db",
     "deploy:vercel": "bash scripts/deploy.sh vercel",
-    "deploy:all": "bash scripts/deploy.sh all"
+    "deploy:all": "bash scripts/deploy.sh all",
+    "invite:user": "node --env-file=.env scripts/invite-user.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
     "@nuxt/ui": "^4.5.0",
     "@nuxtjs/supabase": "^2.0.4",
+    "@supabase/supabase-js": "^2.98.0",
     "@tailwindcss/vite": "^4.2.1",
     "@vueuse/nuxt": "^14.2.1",
     "googleapis": "^171.4.0",

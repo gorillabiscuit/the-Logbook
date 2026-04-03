@@ -486,6 +486,7 @@ logbook/
 NUXT_PUBLIC_SUPABASE_URL=
 NUXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
+NUXT_PUBLIC_APP_URL=         # Production site origin (no trailing slash); used for OAuth and invite redirects
 ANTHROPIC_API_KEY=
 EMBEDDING_API_KEY=           # Voyage AI or OpenAI
 MEILISEARCH_HOST=
@@ -493,6 +494,20 @@ MEILISEARCH_API_KEY=
 NOVU_API_KEY=
 EMAIL_WEBHOOK_SECRET=        # For verifying email ingestion webhooks
 ```
+
+### Supabase Auth URL configuration (dashboard)
+
+Magic links and `inviteUserByEmail` redirect to `{origin}/confirm` (see [`nuxt.config.ts`](nuxt.config.ts) `redirectOptions.callback` and [`server/api/admin/invite.post.ts`](server/api/admin/invite.post.ts)). In the Supabase project under **Authentication → URL configuration**:
+
+- Set **Site URL** to the primary production origin (e.g. `https://the-logbook-orpin.vercel.app`).
+- Add **Redirect URLs** for every environment that must accept the callback, for example:
+  - `https://the-logbook-orpin.vercel.app/confirm`
+  - `http://localhost:3000/confirm` (local dev)
+  - If you use Vercel preview deployments, add a pattern such as `https://*.vercel.app/confirm` (or each preview host explicitly).
+
+CLI invites from a machine whose `NUXT_PUBLIC_APP_URL` is localhost should override redirect for production recipients:
+
+`INVITE_APP_URL=https://<your-prod-host> pnpm invite:user <email> <role> [full_name]`
 
 ## Important Context
 
