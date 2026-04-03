@@ -505,9 +505,9 @@ Magic links and `inviteUserByEmail` redirect to `{origin}/confirm` (see [`nuxt.c
   - `http://localhost:3000/confirm` (local dev)
   - If you use Vercel preview deployments, add a pattern such as `https://*.vercel.app/confirm` (or each preview host explicitly).
 
-CLI invites from a machine whose `NUXT_PUBLIC_APP_URL` is localhost should override redirect for production recipients:
+The [`scripts/invite-user.mjs`](scripts/invite-user.mjs) CLI **refuses** a localhost redirect unless `INVITE_ALLOW_LOCALHOST=1` (so real users are never sent broken links from a dev `.env`). When developing locally but inviting to production, set:
 
-`INVITE_APP_URL=https://<your-prod-host> pnpm invite:user <email> <role> [full_name]`
+`INVITE_APP_URL=https://<your-prod-host> pnpm invite:user -- <email> <role> [full_name]`
 
 ## Important Context
 

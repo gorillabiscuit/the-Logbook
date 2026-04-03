@@ -6,7 +6,8 @@
  *
  * Requires: NUXT_PUBLIC_SUPABASE_URL or SUPABASE_URL, and SUPABASE_SERVICE_ROLE_KEY or SUPABASE_SECRET_KEY.
  * Requires: INVITE_APP_URL or NUXT_PUBLIC_APP_URL (base URL, no trailing slash) for redirect to /confirm.
- *   Use INVITE_APP_URL when .env points at localhost but you are inviting someone to production.
+ * If NUXT_PUBLIC_APP_URL is localhost, you MUST set INVITE_APP_URL to the real production origin
+ * (invites are blocked on localhost unless INVITE_ALLOW_LOCALHOST=1 for local-only testing).
  *
  * Example:
  *   node --env-file=.env scripts/invite-user.mjs raymond@example.com building_manager "Raymond Palm"
@@ -55,10 +56,28 @@ if (!appUrl) {
   process.exit(1)
 }
 
-if (appUrl.includes('localhost') && !process.env.INVITE_ALLOW_LOCALHOST) {
-  console.warn(
-    'Warning: redirect uses localhost — invitee must run the app locally, or set INVITE_APP_URL to production.',
+function isLocalDevOrigin(u) {
+  try {
+    const { hostname } = new URL(u.startsWith('http') ? u : `https://${u}`)
+    return (
+      hostname === 'localhost'
+      || hostname === '127.0.0.1'
+      || hostname.endsWith('.local')
+    )
+  } catch {
+    return /localhost|127\.0\.0\.1/i.test(u)
+  }
+}
+
+if (isLocalDevOrigin(appUrl) && !process.env.INVITE_ALLOW_LOCALHOST) {
+  console.error(
+    'Invite redirect would use a local URL — real users cannot complete signup that way.\n' +
+      'Set INVITE_APP_URL to your production origin, e.g.:\n' +
+      '  INVITE_APP_URL=https://your-app.vercel.app node --env-file=.env scripts/invite-user.mjs ...\n' +
+      'Or set NUXT_PUBLIC_APP_URL in .env to production for deploys.\n' +
+      'For intentional local-only invites: INVITE_ALLOW_LOCALHOST=1',
   )
+  process.exit(1)
 }
 
 const redirectTo = `${appUrl}/confirm`
@@ -84,10 +103,3 @@ if (error) {
 
 console.log('Invite sent:', email, 'role:', roleArg, 'redirectTo:', redirectTo)
 console.log('user_id:', data.user?.id ?? '(pending)')
-if (redirectTo.includes('localhost')) {
-  console.log(
-    '\nIf the invitee should use production, wait for the email rate limit to reset and run again with:\n' +
-      '  INVITE_APP_URL=https://<your-production-host> node --env-file=.env scripts/invite-user.mjs ...\n' +
-      'Or resend from Supabase Dashboard → Authentication → Users (invite / magic link) with redirect URL whitelisted.',
-  )
-}
