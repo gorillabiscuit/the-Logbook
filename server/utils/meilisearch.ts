@@ -78,6 +78,33 @@ export async function indexDocument(
 }
 
 /**
+ * Refreshes Meilisearch row from DB (e.g. after privacy_level changes).
+ */
+export async function reindexDocumentSearchRow(documentId: string): Promise<void> {
+  const supabase = useSupabaseAdmin()
+  const { data: row } = await supabase
+    .from('documents')
+    .select('title, original_filename, doc_type, doc_date, privacy_level, sensitivity_tier, uploaded_by, created_at, scrubbed_text, scrubbed_text_heavy')
+    .eq('id', documentId)
+    .single()
+
+  if (!row) return
+
+  const content = (row.scrubbed_text_heavy as string | null) || row.scrubbed_text || ''
+
+  await indexDocument(documentId, {
+    title: row.title || row.original_filename || 'Untitled',
+    content,
+    privacy_level: row.privacy_level,
+    sensitivity_tier: row.sensitivity_tier ?? undefined,
+    doc_type: row.doc_type,
+    doc_date: row.doc_date,
+    uploaded_by: row.uploaded_by,
+    created_at: row.created_at || new Date().toISOString(),
+  })
+}
+
+/**
  * Removes a document from the Meilisearch index.
  */
 export async function removeDocumentFromIndex(documentId: string): Promise<void> {

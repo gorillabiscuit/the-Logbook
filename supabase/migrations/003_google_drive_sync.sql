@@ -30,3 +30,46 @@ create index drive_sync_files_synced_by_idx on drive_sync_files(synced_by);
 alter table documents drop constraint if exists documents_source_channel_check;
 alter table documents add constraint documents_source_channel_check
   check (source_channel in ('web_upload', 'email_shared', 'email_private', 'google_drive'));
+
+-- ============================================================
+-- VOYAGE EMBEDDINGS (was separate 003 migration; merged for single version)
+-- Switch embedding dimensions from 1536 (OpenAI) to 1024 (Voyage AI voyage-3.5)
+-- ============================================================
+truncate table chunks cascade;
+
+alter table chunks
+  alter column embedding type vector(1024);
+
+create or replace function match_chunks(
+  query_embedding vector(1024),
+  match_threshold float default 0.5,
+  match_count int default 10,
+  filter_privacy text[] default array['shared']
+)
+returns table (
+  id uuid,
+  document_id uuid,
+  content text,
+  chunk_index integer,
+  metadata jsonb,
+  similarity float
+)
+language plpgsql
+as $$
+begin
+  return query
+  select
+    c.id,
+    c.document_id,
+    c.content,
+    c.chunk_index,
+    c.metadata,
+    1 - (c.embedding <=> query_embedding) as similarity
+  from chunks c
+  join documents d on d.id = c.document_id
+  where d.privacy_level = any(filter_privacy)
+    and 1 - (c.embedding <=> query_embedding) > match_threshold
+  order by c.embedding <=> query_embedding
+  limit match_count;
+end;
+$$;

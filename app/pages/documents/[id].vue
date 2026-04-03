@@ -34,6 +34,12 @@ const dedupStatusLabels: Record<string, string> = {
 
 const isAdmin = computed(() => hasRole(['super_admin', 'trustee']))
 const isSubmitter = computed(() => doc.value?.uploaded_by === profile.value?.id)
+
+/** Email to share@: AI could not auto-approve; sender chooses shared vs private */
+const showEmailShareConfirm = computed(
+  () => doc.value?.share_publication_status === 'pending_sender_confirm' && isSubmitter.value,
+)
+const confirmShareLoading = ref(false)
 const isPrivileged = computed(() => hasRole(['super_admin', 'trustee', 'lawyer']))
 
 const canDownload = computed(() => {
@@ -357,6 +363,31 @@ const deleteDocument = async () => {
 
 const downloadLoading = ref(false)
 
+async function confirmSharePublication(action: 'publish_shared' | 'keep_private') {
+  confirmShareLoading.value = true
+  try {
+    const { data: { session } } = await supabase.auth.getSession()
+    await $fetch(`/api/documents/${documentId}/confirm-share`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${session?.access_token}` },
+      body: { action },
+    })
+    toast.add({
+      title: action === 'publish_shared' ? 'Document is now shared with all members' : 'Left as private',
+      color: 'success',
+    })
+    await fetchDocument()
+  } catch (err: any) {
+    toast.add({
+      title: 'Could not update visibility',
+      description: err.data?.statusMessage ?? err.data?.message ?? err.message,
+      color: 'error',
+    })
+  } finally {
+    confirmShareLoading.value = false
+  }
+}
+
 const download = async () => {
   if (!doc.value?.file_url) return
   downloadLoading.value = true
@@ -526,6 +557,46 @@ onUnmounted(stopPolling)
                 </span>
               </NuxtLink>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Email share@ — sender confirms scheme-wide visibility -->
+      <div
+        v-if="showEmailShareConfirm"
+        class="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 p-4"
+      >
+        <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+          <div class="min-w-0">
+            <p class="text-sm font-medium text-amber-900 dark:text-amber-100">
+              You sent this to the shared archive address
+            </p>
+            <p class="text-xs text-amber-800 dark:text-amber-300 mt-1 leading-relaxed">
+              Automated review could not confirm it is suitable for <strong>all</strong> members. It stays
+              <strong>private</strong> until you choose. If you publish it as shared, other signed-in members will be able
+              to see it (subject to normal access rules). Only proceed if you are comfortable with that.
+            </p>
+            <p v-if="doc.ai_privacy_reason" class="text-xs text-amber-700/90 dark:text-amber-400/90 mt-2 italic">
+              Note: {{ doc.ai_privacy_reason }}
+            </p>
+          </div>
+          <div class="flex flex-wrap gap-2 shrink-0">
+            <UButton
+              label="Publish as shared"
+              color="warning"
+              variant="solid"
+              size="sm"
+              :loading="confirmShareLoading"
+              @click="confirmSharePublication('publish_shared')"
+            />
+            <UButton
+              label="Keep private"
+              color="neutral"
+              variant="outline"
+              size="sm"
+              :loading="confirmShareLoading"
+              @click="confirmSharePublication('keep_private')"
+            />
           </div>
         </div>
       </div>

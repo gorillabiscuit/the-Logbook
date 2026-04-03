@@ -50,6 +50,14 @@ export async function categorizeDocument(
     return { categories: [], summary: '', confidence: 0, extractedDate: null, sensitivityTier: 'scheme_ops', suggestedTitle: null, suggestedDocType: null, suggestedPrivacyLevel: null, privacyReason: null }
   }
 
+  const { data: docMeta } = await supabase
+    .from('documents')
+    .select('email_public_share_requested')
+    .eq('id', documentId)
+    .single()
+
+  const emailSharedSafetyReview = docMeta?.email_public_share_requested === true
+
   // Build category tree string for the prompt
   const parents = categories.filter(c => !c.parent_id)
   const categoryTree = parents
@@ -90,6 +98,10 @@ Privacy classification (South African POPIA Act):
 - "privileged": Legal strategy, legal opinions, attorney-client communications, litigation preparation, or documents explicitly marked as privileged/confidential by the body corporate's lawyer.
 Default to "shared" when uncertain. Err toward "private" when personal data of identifiable natural persons appears (POPIA s1 definition of personal information). Only use "privileged" for genuine legal professional privilege.
 
+${emailSharedSafetyReview
+    ? `EMAIL SHARED-INGESTION MODE (critical): The sender used the address meant for scheme-wide documents, but the system is holding this as private until approved. Be STRICT: use "shared" only for content clearly safe for all owners (AGM minutes, general notices, non-personal scheme correspondence). Use "private" for levy statements, personal letters, unit-specific finances, or anything naming identifiable individuals in a personal capacity. Use "privileged" only for genuine legal privilege. When unsure between shared and private, choose "private".`
+    : ''}
+
 Rules:
 - Select 1-3 most relevant categories from the tree below
 - Use the CHILD category when applicable (more specific = better)
@@ -104,7 +116,7 @@ ${categoryTree}`,
     messages: [
       {
         role: 'user',
-        content: `Categorize this document:\n\n${truncatedText}`,
+        content: `${emailSharedSafetyReview ? '[INGESTION: email to shared archive — apply strict privacy classification]\n\n' : ''}Categorize this document:\n\n${truncatedText}`,
       },
     ],
   })

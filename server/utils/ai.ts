@@ -32,6 +32,9 @@ interface RAGResponse {
 
 /**
  * Determines which privacy levels a user role can access for RAG queries.
+ * Note: owners/tenants only get `shared` here; their *own* private uploads are
+ * added separately via match_chunks(include_private_for_user) so other users'
+ * private documents never appear in retrieval.
  */
 function getPrivacyFilter(role: string): string[] {
   switch (role) {
@@ -51,6 +54,11 @@ function getPrivacyFilter(role: string): string[] {
   }
 }
 
+/** Roles that may see their own private document chunks in RAG (not others'). */
+function includeOwnPrivateInRag(role: string): boolean {
+  return role === 'owner' || role === 'tenant'
+}
+
 /**
  * Performs a RAG query: embed the question, retrieve relevant chunks,
  * synthesise an answer with Claude, and return sources.
@@ -68,12 +76,15 @@ export async function ragQuery(
 
   // 2. Retrieve matching chunks via pgvector
   const privacyFilter = getPrivacyFilter(role)
+  const includePrivateForUser =
+    includeOwnPrivateInRag(role) && userId ? userId : null
 
   const { data: chunks, error: matchError } = await supabase.rpc('match_chunks', {
     query_embedding: JSON.stringify(queryEmbedding),
     match_threshold: 0.3,
-    match_count: 8,
+    match_count: 12,
     filter_privacy: privacyFilter,
+    include_private_for_user: includePrivateForUser,
   })
 
   if (matchError) {

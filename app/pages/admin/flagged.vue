@@ -151,6 +151,15 @@ onMounted(async () => {
             <UBadge color="warning" variant="soft" size="sm">needs review</UBadge>
           </div>
 
+          <UAlert
+            v-if="doc.share_publication_status === 'trustee_review_privilege'"
+            color="error"
+            variant="soft"
+            title="Shared-ingest address — possible privileged content"
+            :description="doc.ai_privacy_reason || 'AI flagged this as privileged or legal-strategy material sent to the shared email address. Set privacy and categories before approving.'"
+            class="text-sm"
+          />
+
           <!-- AI Summary -->
           <p v-if="doc.ai_summary" class="text-sm text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 rounded p-3">
             {{ doc.ai_summary }}

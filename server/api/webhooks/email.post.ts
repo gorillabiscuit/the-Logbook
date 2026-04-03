@@ -12,7 +12,7 @@
  * {
  *   From: "sender@example.com",
  *   FromName: "Sender Name",
- *   To: "share@logbook.yachtclub.co.za",
+ *   To: "share@logbook.yachtclub.co.za" (ingested private-first; AI may promote to shared or ask sender),
  *   Subject: "Document title",
  *   TextBody: "Email body text",
  *   HtmlBody: "<p>Email body</p>",
@@ -43,11 +43,11 @@ export default defineEventHandler(async (event) => {
   const attachments: Array<{ Name: string; ContentType: string; Content: string; ContentLength: number; ContentID?: string }> =
     body.Attachments || body.attachments || []
 
-  // Determine privacy level based on recipient address
-  let privacyLevel = 'shared'
-  if (toAddress.includes('private')) {
-    privacyLevel = 'private'
-  }
+  const isPrivateInbox = toAddress.includes('private')
+  const sourceChannel = isPrivateInbox ? 'email_private' : 'email_shared'
+  /** share@: hold as private until AI (and optionally sender) approves scheme-wide visibility */
+  const emailPublicShareRequested = !isPrivateInbox
+  const ingestPrivacyLevel = 'private'
 
   // Match sender to a user profile
   let uploadedBy: string | null = null
@@ -63,7 +63,6 @@ export default defineEventHandler(async (event) => {
     }
   }
 
-  const sourceChannel = privacyLevel === 'private' ? 'email_private' : 'email_shared'
   const receivedAt = new Date().toISOString()
   const createdDocuments: string[] = []
 
@@ -109,11 +108,12 @@ export default defineEventHandler(async (event) => {
         file_url: storagePath,
         file_size_bytes: buffer.length,
         mime_type: 'text/plain',
-        privacy_level: privacyLevel,
+        privacy_level: ingestPrivacyLevel,
         source_channel: sourceChannel,
         processing_status: 'pending',
         email_context: context,
         auto_analyze: true,
+        email_public_share_requested: emailPublicShareRequested,
       })
       .select('id')
       .single()
@@ -178,12 +178,13 @@ export default defineEventHandler(async (event) => {
             file_url: storagePath,
             file_size_bytes: attachment.ContentLength || buffer.length,
             mime_type: attachment.ContentType,
-            privacy_level: privacyLevel,
+            privacy_level: ingestPrivacyLevel,
             source_channel: sourceChannel,
             processing_status: 'pending',
             email_context: emailContext,
             file_hash: attachmentHash,
             auto_analyze: true,
+            email_public_share_requested: emailPublicShareRequested,
           })
           .select('id')
           .single()
@@ -229,7 +230,8 @@ export default defineEventHandler(async (event) => {
     documentIds: createdDocuments,
     attachmentsFiltered,
     sender: senderEmail,
-    privacyLevel,
+    privacyLevel: ingestPrivacyLevel,
+    emailPublicShareRequested,
     matched: !!uploadedBy,
   }
 })

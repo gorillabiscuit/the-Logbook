@@ -7,7 +7,11 @@
     "dev": "nuxt dev",
     "generate": "nuxt generate",
     "preview": "nuxt preview",
-    "postinstall": "nuxt prepare"
+    "postinstall": "nuxt prepare",
+    "deploy:check": "bash scripts/deploy.sh check",
+    "deploy:db": "bash scripts/deploy.sh db",
+    "deploy:vercel": "bash scripts/deploy.sh vercel",
+    "deploy:all": "bash scripts/deploy.sh all"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",

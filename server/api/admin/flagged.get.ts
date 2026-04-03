@@ -1,6 +1,7 @@
 /**
  * GET /api/admin/flagged
- * Lists documents flagged for review (low AI confidence categorization).
+ * Lists documents flagged for review (low AI confidence categorization,
+ * or rare share@ ingest with possible privileged content).
  * Admin-only endpoint.
  */
 export default defineEventHandler(async (event) => {
@@ -32,7 +33,7 @@ export default defineEventHandler(async (event) => {
   // Fetch flagged documents with their AI-suggested categories
   const { data: docs, error } = await supabase
     .from('documents')
-    .select('id, title, original_filename, privacy_level, doc_type, ai_summary, ai_confidence, created_at')
+    .select('id, title, original_filename, privacy_level, doc_type, ai_summary, ai_confidence, ai_privacy_reason, share_publication_status, created_at')
     .eq('processing_status', 'flagged_for_review')
     .order('created_at', { ascending: false })
     .limit(50)

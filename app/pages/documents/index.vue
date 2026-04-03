@@ -7,12 +7,40 @@ definePageMeta({
   ssr: false,
 })
 
+/** Inbound email (must match webhook / DNS). */
+const EMAIL_SHARED = 'share@logbook.yachtclub.co.za'
+const EMAIL_PRIVATE = 'private@logbook.yachtclub.co.za'
+
+const DOCUMENTS_GUIDE_STORAGE_KEY = 'logbook:documents-ingestion-guide-expanded'
+
+const documentsGuideOpen = ref<string | undefined>('ingestion-guide')
+
+watch(documentsGuideOpen, (v) => {
+  try {
+    localStorage.setItem(DOCUMENTS_GUIDE_STORAGE_KEY, v === 'ingestion-guide' ? '1' : '0')
+  }
+  catch {
+    /* ignore */
+  }
+})
+
+const documentsGuideItems = [
+  {
+    value: 'ingestion-guide',
+    label: 'How documents get into the Logbook',
+    icon: 'i-heroicons-information-circle',
+    slot: 'ingestion',
+  },
+]
+
 const supabase = useSupabaseClient()
 const toast = useToast()
 const { hasRole, profile } = useAuth()
 const { query: searchQuery, results: searchResults, totalHits, searching, isSearchMode } = useSearch()
 
 const isAdmin = computed(() => hasRole(['super_admin', 'trustee']))
+
+const showDriveInGuide = computed(() => profile.value?.role !== 'tenant')
 
 const route = useRoute()
 
@@ -230,6 +258,15 @@ const fetchCategories = async () => {
 }
 
 onMounted(async () => {
+  try {
+    const saved = localStorage.getItem(DOCUMENTS_GUIDE_STORAGE_KEY)
+    if (saved === '0') documentsGuideOpen.value = undefined
+    else if (saved === '1') documentsGuideOpen.value = 'ingestion-guide'
+  }
+  catch {
+    /* private mode / unavailable */
+  }
+
   // Ensure profile is loaded (plugin fires async, may not be ready yet)
   if (!profile.value) {
     const { data: { session } } = await supabase.auth.getSession()
@@ -370,6 +407,80 @@ const displayCount = computed(() => {
         <UButton label="Bulk import" icon="i-heroicons-arrow-down-tray" variant="outline" to="/documents/bulk-upload" />
         <UButton label="WhatsApp" icon="i-heroicons-chat-bubble-left-right" variant="outline" to="/documents/import-whatsapp" />
       </div>
+    </div>
+
+    <!-- Ingestion guide (blue panel — matches other doc tool hints) -->
+    <div
+      class="mb-6 rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950 p-4"
+    >
+      <UAccordion
+        v-model="documentsGuideOpen"
+        :items="documentsGuideItems"
+        :unmount-on-hide="false"
+        :ui="{
+          root: 'bg-transparent',
+          item: 'border-0',
+          header: 'px-0',
+          trigger: 'py-2 px-0 text-blue-900 dark:text-blue-100 hover:bg-blue-100/60 dark:hover:bg-blue-900/40 rounded-lg',
+          label: 'text-sm font-semibold text-blue-900 dark:text-blue-100',
+          trailingIcon: 'text-blue-600 dark:text-blue-400',
+          content: 'px-0 pb-0 pt-1',
+          body: 'space-y-4',
+        }"
+      >
+        <template #ingestion-body>
+          <div class="text-sm text-blue-800 dark:text-blue-300 leading-relaxed space-y-4">
+            <p>
+              Anything you add is stored for the scheme archive, text is extracted for search and (where your role allows) AI chat. Pick the channel that fits how you work; <strong class="text-blue-900 dark:text-blue-100">privacy is decided per document</strong> (or by which email address you use).
+            </p>
+
+            <div>
+              <p class="font-semibold text-blue-900 dark:text-blue-100 mb-1.5">Ways to add documents</p>
+              <ul class="list-disc pl-5 space-y-2">
+                <li>
+                  <strong class="text-blue-900 dark:text-blue-100">Web upload</strong> —
+                  <NuxtLink to="/documents/upload" class="text-blue-700 dark:text-blue-200 underline underline-offset-2 hover:text-blue-900 dark:hover:text-blue-50">Upload</NuxtLink>
+                  PDFs, Word, images, and more. You choose <strong>shared</strong>, <strong>private</strong>, or (if allowed) <strong>privileged</strong>, and optional AI title and categories.
+                </li>
+                <li>
+                  <strong class="text-blue-900 dark:text-blue-100">Email</strong> —
+                  <code class="text-xs bg-blue-100/80 dark:bg-blue-900/80 px-1.5 py-0.5 rounded text-blue-900 dark:text-blue-100">{{ EMAIL_PRIVATE }}</code>
+                  stores attachments as <strong>private</strong>.
+                  <code class="text-xs bg-blue-100/80 dark:bg-blue-900/80 px-1.5 py-0.5 rounded text-blue-900 dark:text-blue-100">{{ EMAIL_SHARED }}</code>
+                  is for material you intend for <strong>all members</strong>: it is ingested as <strong>private first</strong>, then AI may approve <strong>shared</strong> automatically, or you may be asked on the document page to confirm — so mis-sent personal documents are not exposed by default. Privileged material must never be emailed; use web upload only.
+                </li>
+                <li>
+                  <strong class="text-blue-900 dark:text-blue-100">Bulk import</strong> —
+                  <NuxtLink to="/documents/bulk-upload" class="text-blue-700 dark:text-blue-200 underline underline-offset-2 hover:text-blue-900 dark:hover:text-blue-50">Bulk import</NuxtLink>
+                  for many files at once with shared privacy and shared processing defaults.
+                </li>
+                <li>
+                  <strong class="text-blue-900 dark:text-blue-100">WhatsApp export</strong> —
+                  <NuxtLink to="/documents/import-whatsapp" class="text-blue-700 dark:text-blue-200 underline underline-offset-2 hover:text-blue-900 dark:hover:text-blue-50">Import WhatsApp</NuxtLink>
+                  turns an exported chat into a document (see that page for steps).
+                </li>
+                <li v-if="showDriveInGuide">
+                  <strong class="text-blue-900 dark:text-blue-100">Google Drive</strong> —
+                  <NuxtLink to="/drive" class="text-blue-700 dark:text-blue-200 underline underline-offset-2 hover:text-blue-900 dark:hover:text-blue-50">Drive sync</NuxtLink>
+                  can copy files from a linked folder into the Logbook.
+                </li>
+              </ul>
+            </div>
+
+            <div class="border-t border-blue-200/80 dark:border-blue-800/80 pt-3">
+              <p class="font-semibold text-blue-900 dark:text-blue-100 mb-1.5">What “privacy” means here</p>
+              <ul class="list-disc pl-5 space-y-1.5 text-xs sm:text-sm">
+                <li><strong class="text-blue-900 dark:text-blue-100">Shared</strong> — visible to all signed-in members; suitable for AGM packs, notices, scheme-wide correspondence.</li>
+                <li><strong class="text-blue-900 dark:text-blue-100">Private</strong> — visible to you and trustees/lawyer; use for levy statements, personal letters, or anything with identifying detail you do not want generally shared.</li>
+                <li><strong class="text-blue-900 dark:text-blue-100">Privileged</strong> — trustees and lawyer only; upload on the web if your role allows it — never via email.</li>
+              </ul>
+              <p class="text-xs text-blue-700/90 dark:text-blue-400 mt-2">
+                After upload, documents are processed (text extraction, optional AI). Search and AI answers only use content you are allowed to see under these rules.
+              </p>
+            </div>
+          </div>
+        </template>
+      </UAccordion>
     </div>
 
     <!-- Filters -->

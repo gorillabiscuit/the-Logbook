@@ -297,6 +297,8 @@ export type Database = {
           scrubbed_text: string | null
           created_at: string | null
           processed_at: string | null
+          email_public_share_requested?: boolean | null
+          share_publication_status?: string | null
         }
         Insert: {
           id?: string
@@ -317,6 +319,8 @@ export type Database = {
           scrubbed_text?: string | null
           created_at?: string | null
           processed_at?: string | null
+          email_public_share_requested?: boolean | null
+          share_publication_status?: string | null
         }
         Update: {
           id?: string
@@ -337,6 +341,8 @@ export type Database = {
           scrubbed_text?: string | null
           created_at?: string | null
           processed_at?: string | null
+          email_public_share_requested?: boolean | null
+          share_publication_status?: string | null
         }
         Relationships: [
           {

@@ -243,6 +243,11 @@ export async function processDocument(documentId: string): Promise<void> {
   // Stage 2: AI Categorization (moved before PII scrub to determine sensitivity tier)
   let overallConfidence = 1.0
   let sensitivityTier: SensitivityTier = 'scheme_ops'
+  /** Email share@ flow: skip trustee queue for low categorization confidence when sender can confirm. */
+  let suppressLowConfidenceFlag = false
+  /** Rare: AI suggests privileged on share@ — trustees must review. */
+  let forceTrusteeFlag = false
+
   const categorizationResult = await runStage(documentId, 'categorization', async () => {
     await updateStageProgress(documentId, 'categorization', 20, 'Analyzing document with AI...')
     const result = await categorizeDocument(extractedText, documentId)
@@ -268,8 +273,36 @@ export async function processDocument(documentId: string): Promise<void> {
       }
     }
 
-    // When auto_classify_privacy is set, let AI override privacy level
-    if (doc.auto_classify_privacy && result.suggestedPrivacyLevel) {
+    const AUTO_SHARE_MIN_CONFIDENCE = 0.72
+
+    if (doc.email_public_share_requested) {
+      updatePayload.ai_privacy_reason = result.privacyReason
+      const priv = result.suggestedPrivacyLevel
+      const conf = result.confidence
+
+      if (!doc.uploaded_by) {
+        updatePayload.privacy_level = 'private'
+        updatePayload.share_publication_status = 'unmatched_sender'
+        suppressLowConfidenceFlag = true
+      }
+      else if (priv === 'privileged' || sensitivityTier === 'privileged_legal') {
+        updatePayload.privacy_level = 'private'
+        updatePayload.share_publication_status = 'trustee_review_privilege'
+        forceTrusteeFlag = true
+        suppressLowConfidenceFlag = true
+      }
+      else if (priv === 'shared' && conf >= AUTO_SHARE_MIN_CONFIDENCE) {
+        updatePayload.privacy_level = 'shared'
+        updatePayload.share_publication_status = 'auto_promoted_shared'
+        suppressLowConfidenceFlag = true
+      }
+      else {
+        updatePayload.privacy_level = 'private'
+        updatePayload.share_publication_status = 'pending_sender_confirm'
+        suppressLowConfidenceFlag = true
+      }
+    }
+    else if (doc.auto_classify_privacy && result.suggestedPrivacyLevel) {
       updatePayload.privacy_level = result.suggestedPrivacyLevel
       updatePayload.ai_privacy_reason = result.privacyReason
     }
@@ -389,14 +422,20 @@ export async function processDocument(documentId: string): Promise<void> {
 
   const indexingResult = await runStage(documentId, 'indexing', async () => {
     await updateStageProgress(documentId, 'indexing', 30, 'Indexing in search...')
+    const { data: privacyRow } = await supabase
+      .from('documents')
+      .select('privacy_level, uploaded_by')
+      .eq('id', documentId)
+      .single()
+
     await indexDocument(documentId, {
       title: updatedDoc?.title ?? doc.title ?? doc.original_filename ?? 'Untitled',
       content: scrubbedTextForIndex, // Index heavy-scrubbed text — PII safety
-      privacy_level: doc.privacy_level,
+      privacy_level: privacyRow?.privacy_level ?? doc.privacy_level,
       sensitivity_tier: sensitivityTier,
       doc_type: updatedDoc?.doc_type ?? doc.doc_type,
       doc_date: updatedDoc?.doc_date ?? doc.doc_date,
-      uploaded_by: doc.uploaded_by,
+      uploaded_by: privacyRow?.uploaded_by ?? doc.uploaded_by,
       created_at: doc.created_at,
     })
   })
@@ -411,7 +450,8 @@ export async function processDocument(documentId: string): Promise<void> {
 
   // Determine final status
   const anyFailed = results.some(r => !r.success)
-  const flagged = overallConfidence < 0.6
+  const lowCatConfidence = overallConfidence < 0.6 && !suppressLowConfidenceFlag
+  const flagged = lowCatConfidence || forceTrusteeFlag
 
   let finalStatus: string
   if (flagged) {

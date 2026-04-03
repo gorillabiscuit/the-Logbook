@@ -1,18 +1,13 @@
--- Switch embedding dimensions from 1536 (OpenAI) to 1024 (Voyage AI voyage-3.5)
+-- RAG: allow owners (and tenants) to retrieve vector chunks from their *own* private
+-- uploads, without widening access to other users' private documents.
+-- Trustees/lawyers/super_admin already pass filter_privacy including 'private'.
 
--- Drop existing chunks data (no production embeddings exist yet)
-truncate table chunks cascade;
-
--- Change the embedding column dimension
-alter table chunks
-  alter column embedding type vector(1024);
-
--- Update match_chunks function to use 1024 dimensions
 create or replace function match_chunks(
   query_embedding vector(1024),
   match_threshold float default 0.5,
   match_count int default 10,
-  filter_privacy text[] default array['shared']
+  filter_privacy text[] default array['shared'],
+  include_private_for_user uuid default null
 )
 returns table (
   id uuid,
@@ -23,6 +18,7 @@ returns table (
   similarity float
 )
 language plpgsql
+stable
 as $$
 begin
   return query
@@ -35,7 +31,14 @@ begin
     1 - (c.embedding <=> query_embedding) as similarity
   from chunks c
   join documents d on d.id = c.document_id
-  where d.privacy_level = any(filter_privacy)
+  where (
+    d.privacy_level = any(filter_privacy)
+    or (
+      include_private_for_user is not null
+      and d.privacy_level = 'private'
+      and d.uploaded_by is not distinct from include_private_for_user
+    )
+  )
     and 1 - (c.embedding <=> query_embedding) > match_threshold
   order by c.embedding <=> query_embedding
   limit match_count;

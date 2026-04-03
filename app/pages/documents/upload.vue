@@ -309,7 +309,7 @@ const upload = async () => {
 </script>
 
 <template>
-  <div class="max-w-2xl">
+  <div class="w-full">
     <div class="mb-6">
       <div class="flex items-center gap-2 mb-1">
         <UButton
@@ -323,15 +323,6 @@ const upload = async () => {
       <p class="text-gray-500 dark:text-gray-400 text-sm ml-9">
         Upload a document to the collective knowledge base.
       </p>
-    </div>
-
-    <div class="flex items-center gap-2 px-3 py-2 mb-4 rounded-lg bg-gray-50 dark:bg-gray-800/50 text-sm text-gray-500 dark:text-gray-400">
-      <UIcon name="i-heroicons-envelope" class="w-4 h-4 shrink-0" />
-      <span>
-        You can also forward emails to
-        <code class="text-gray-700 dark:text-gray-300">share@logbook.yachtclub.co.za</code> or
-        <code class="text-gray-700 dark:text-gray-300">private@logbook.yachtclub.co.za</code>
-      </span>
     </div>
 
     <UCard>
