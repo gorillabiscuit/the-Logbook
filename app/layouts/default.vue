@@ -32,6 +32,19 @@ const isAdmin = computed(() =>
   profile.value?.role === 'super_admin' || profile.value?.role === 'trustee'
 )
 
+function formatRole(role: string | undefined) {
+  if (!role) return ''
+  return role.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+}
+
+const accountSubtitle = computed(() => {
+  const p = profile.value
+  if (!p) return ''
+  const parts = [formatRole(p.role)]
+  if (p.unit_number) parts.push(`Unit ${p.unit_number}`)
+  return parts.join(' · ')
+})
+
 const sidebarOpen = ref(false)
 </script>
 
@@ -101,8 +114,14 @@ const sidebarOpen = ref(false)
           />
           <div class="min-w-0 flex-1">
             <div class="text-sm font-medium text-gray-900 dark:text-white truncate">{{ profile.full_name }}</div>
-            <div class="text-xs text-gray-500 dark:text-gray-400 truncate">
-              {{ profile.unit_number ? `Unit ${profile.unit_number}` : profile.role }}
+            <div
+              class="text-xs text-gray-500 dark:text-gray-400 truncate"
+              :title="profile.email"
+            >
+              {{ profile.email }}
+            </div>
+            <div class="text-xs text-gray-400 dark:text-gray-500 truncate">
+              {{ accountSubtitle }}
             </div>
           </div>
         </div>
@@ -128,7 +147,16 @@ const sidebarOpen = ref(false)
           color="neutral"
           @click="sidebarOpen = true"
         />
-        <span class="font-semibold text-gray-900 dark:text-white">The Logbook</span>
+        <div class="min-w-0 flex-1">
+          <div class="font-semibold text-gray-900 dark:text-white truncate">The Logbook</div>
+          <div
+            v-if="profile?.email"
+            class="text-xs text-gray-500 dark:text-gray-400 truncate"
+            :title="profile.email"
+          >
+            {{ profile.email }}
+          </div>
+        </div>
       </header>
 
       <!-- Page content -->
