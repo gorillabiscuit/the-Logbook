@@ -1,3 +1,6 @@
+# Personal claude settings, may contain secrets
+.claude/
+
 # Nuxt dev/build outputs
 .output
 .data
