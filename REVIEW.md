@@ -11,8 +11,7 @@
    - **Comments**
      - Consult with Judith about this, the case we can make right now is:
        - We send raw uploaded document content to US servers in order to remove PII
-       - The service receiving them is not POPIA/GDPR compliant
-       - But they do offer API terms which state they don't train on API data, and a standard DPA (Data Processing Agreement) that may cover us to an extent.
+       - The service receiving them claims https://trust.anthropic.com/ they offer API terms which state they don't train on API data, and a standard DPA (Data Processing Agreement) that may cover us to an extent.
        - Would be interesting to know if we could absolve `The Logbook` from liability with a well-worded TOS
    - **Solution**
      - The compliant production-ready approach is to move PII removal processing to a local model that we control within ZA, or to a provider which offers explicit POPIA/GDPR guarrantees
@@ -58,6 +57,8 @@
    - Data retention and deletion policy (POPIA-GDPR requirement)
    - Incident response plan — who gets called, what gets done
    - Load testing — what happens when multiple users upload documents or search simultaneously (which will happen in cases of e.g. tenant meetings)
+   - Telemetry — behavior tracking and user metrics to improve product
+   - Feature flags — per-entity feature flags that would enable tiered features approach and A/B testing
 
 # Roadmap Feedback
 
