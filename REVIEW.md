@@ -43,6 +43,7 @@
 8. **Nuxt/Vercel stack concerns (personal note)**
    - Not a bug, but a recommendation / preference on my side: frameworks like Nuxt/Next that tightly couple frontend and backend don't sit well with me. I prefer distinct separation and clear interfaces between client and server code. Nuxt's auto-import magic makes the codebase harder to reason about. Vercel as a platform I'm generally not a fan of either. Not a blocker, but wanted to make a note early-on, to consider alternatives before investing more in this approach.
 9. **Missing for production readiness (beyond repo-level fixes)**
+   - Pin all repo dependencies to secure release versions
    - CI/CD pipeline — automated builds, tests, and deployments on push/merge
    - Environment management — proper staging environment separate from production
    - Monitoring and observability — error tracking (e.g. Sentry), uptime monitoring, logging aggregation
